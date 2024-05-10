@@ -10,7 +10,7 @@ conda activate gprMax
 python -m gprMax --geometry-only main.in
 
 
-OMP_NUM_THREADS=4
+OMP_NUM_THREADS=6
 python -m gprMax main.in 
 
 python "$EM_models_root/plot_antenna_params.py" main.out --rx-num 1 --rx-component Ez 

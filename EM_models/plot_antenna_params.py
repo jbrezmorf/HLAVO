@@ -310,7 +310,9 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     ax.set_ylabel('Power [dB]')
     ax.grid(which='both', axis='both', linestyle='-.')
 
-    # =================================================
+
+
+    # ========================================================================================================
     # Figure 2
     # Plot frequency spectra of s11
     fig2, ax = plt.subplots(num='Antenna parameters', figsize=(20, 12), facecolor='w', edgecolor='w')
@@ -321,7 +323,7 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     plt.setp(stemlines, 'color', 'g')
     plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
     ax.plot(freqs[pltrange], s11[pltrange], 'g', lw=2)
-    ax.set_title('s11')
+    ax.set_title('s11 $ = 20 log_{10}\\left| V_{ref} / V_{inc} \\right|$')
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Power [dB]')
     # ax.set_xlim([0, 5e9])
@@ -336,7 +338,7 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
         plt.setp(stemlines, 'color', 'g')
         plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
         ax.plot(freqs[pltrange], s21[pltrange], 'g', lw=2)
-        ax.set_title('s21')
+        ax.set_title('s21 $ = 20 log_{10}\\left| V_{out} / V_{inc} \\right|$')
         ax.set_xlabel('Frequency [Hz]')
         ax.set_ylabel('Power [dB]')
         # ax.set_xlim([0.88e9, 1.02e9])
@@ -350,7 +352,7 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     plt.setp(stemlines, 'color', 'g')
     plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
     ax.plot(freqs[pltrange], zin[pltrange].real, 'g', lw=2)
-    ax.set_title('Input impedance (resistive)')
+    ax.set_title('Impedance (real) $ = Re Z = Re(V_{tot} / I_{tot})$')
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Resistance [Ohms]')
     # ax.set_xlim([0.88e9, 1.02e9])
@@ -365,7 +367,7 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     plt.setp(stemlines, 'color', 'g')
     plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
     ax.plot(freqs[pltrange], zin[pltrange].imag, 'g', lw=2)
-    ax.set_title('Input impedance (reactive)')
+    ax.set_title('Impedance (imag) $= Im Z = Im(V_{tot} / I_{tot})$')
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Reactance [Ohms]')
     # ax.set_xlim([0.88e9, 1.02e9])
@@ -373,31 +375,33 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     ax.grid(which='both', axis='both', linestyle='-.')
 
     # Plot input admittance (magnitude)
+    print(np.abs(yin[pltrange]))
     ax = plt.subplot(gs2[2, 0])
     markerline, stemlines, baseline = ax.stem(freqs[pltrange], np.abs(yin[pltrange]), '-.')
     plt.setp(baseline, 'linewidth', 0)
     plt.setp(stemlines, 'color', 'g')
     plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
     ax.plot(freqs[pltrange], np.abs(yin[pltrange]), 'g', lw=2)
-    ax.set_title('Input admittance (magnitude)')
+    ax.set_title('Admittance (magnitude) $= |Y| = |I_{tot} / V_{tot}|$')
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Admittance [Siemens]')
-    ax.set_xlim([0.88e9, 1.02e9])
-    ax.set_ylim([0, 0.035])
+    #ax.set_xlim([0.88e9, 1.02e9])
+    #ax.set_ylim([0, 2e-4])
     ax.grid(which='both', axis='both', linestyle='-.')
 
     # Plot input admittance (phase)
+    print(np.angle(yin[pltrange], deg=True))
     ax = plt.subplot(gs2[2, 1])
     markerline, stemlines, baseline = ax.stem(freqs[pltrange], np.angle(yin[pltrange], deg=True), '-.')
     plt.setp(baseline, 'linewidth', 0)
     plt.setp(stemlines, 'color', 'g')
     plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
     ax.plot(freqs[pltrange], np.angle(yin[pltrange], deg=True), 'g', lw=2)
-    ax.set_title('Input admittance (phase)')
+    ax.set_title('Admittance (phase) $= angle(Y) = angle(I_{tot} / V_{tot})$')
     ax.set_xlabel('Frequency [Hz]')
     ax.set_ylabel('Phase [degrees]')
-    ax.set_xlim([0.88e9, 1.02e9])
-    ax.set_ylim([-40, 100])
+    #ax.set_xlim([0.88e9, 1.02e9])
+    ax.set_ylim([89, 90])
     ax.grid(which='both', axis='both', linestyle='-.')
 
     # Save a PDF/PNG of the figure
