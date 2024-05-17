@@ -1,5 +1,14 @@
 #python:
 
+"""
+Model of a wave propagation along a cox and through a connection to the edge of plate.
+
+Coax core (X axis) and shileding is modeled as 3 cylinders: PEC, dielectric, PEC
+Source is modeled at the 4 points of the core, mimicking the TEM wave.
+
+Plate (XY axes) is parallel to the coax, extending up to PML boundary since in this we just want to understand
+the behavior at the connection.
+"""
 ## Sensor geometry + freespace
 ## transmission line + RX on other electrode; around 100MHz
 
@@ -8,8 +17,8 @@
 from gprMax.input_cmd_funcs import *
 import numpy as np
 
-## Setup domain
-domain_size = np.array([0.2, 0.2, 0.15])  # domain size as a numpy array [X, Y, Z] in meters
+## Setup domain, 
+domain_size = np.array([0.2, 0.2, 0.1])  # domain size as a numpy array [X, Y, Z] in meters
 domain(*domain_size)
 
 step_size = 0.0015  # in meters
@@ -19,8 +28,22 @@ dx_dy_dz(*steps)
 time_window_end = 50e-9  # in seconds
 time_window(time_window_end)
 
-## Geometry Parameters
-electrodes_gap = 0.03
+## Geometry Parameters, RG-6/U coax 75 Ohm (attenuation 2 dB/ 100ft @ 100MHz
+## core fixed, Velocity of Propagation for PE foam 80%, coax calculator is used to compute outer dielectric diameter for 75 Ohm
+## https://www.pasternack.com/t-calculator-coax-cutoff.aspx
+## 
+core_diam = 1.024         # [mm]
+dielectric_diam = 4.9     # [mm]
+velocity_factor = 80      # vf = sqrt(1/eps_relative)
+
+permitivity = 1/velocity_factor**2
+
+
+## TODO: cylinders and plate geometry, 4 sources approximationg the TEM wave around coax
+
+
+
+
 electrodes_thick = 0.002
 electrodes_height = 0.01
 
@@ -30,11 +53,8 @@ outer_gap = 0.002
 ## Compute center coordinates as a NumPy array
 center = domain_size / 2
 
-## Soil box
-lower_corner = np.array([0, 0, 0])
-box(*lower_corner, *domain_size, 'free_space')
 
-## Main cylinder (gap between electrodes and soil)
+## Shilding cylinder
 main_diameter = outer_diameter + outer_gap
 cylinder(center[0], center[1], 0, center[0], center[1], domain_size[2], main_diameter, 'free_space')
 
