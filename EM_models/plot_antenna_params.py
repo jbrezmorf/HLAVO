@@ -83,6 +83,7 @@ def calculate_antenna_params(filename, tltxnumber=1, tlrxnumber=None, rxnumber=N
         if rxcomponent not in availableoutputs:
             raise CmdInputError('{} output requested, but the available output for receiver {} is {}'.format(rxcomponent, rxnumber, ', '.join(availableoutputs)))
 
+        rxpathorig = rxpath
         rxpath += rxcomponent
 
         # Received voltage
@@ -92,6 +93,7 @@ def calculate_antenna_params(filename, tltxnumber=1, tlrxnumber=None, rxnumber=N
             Vrec = f[rxpath][:] * -1 * dxdydz[1]
         elif rxcomponent == 'Ez':
             Vrec = f[rxpath][:] * -1 * dxdydz[2]
+            Irec = f[rxpathorig + 'Iz'][:]
     f.close()
 
     # Frequency bins
@@ -111,6 +113,10 @@ def calculate_antenna_params(filename, tltxnumber=1, tlrxnumber=None, rxnumber=N
     with np.errstate(divide='ignore'):
         zin = (np.fft.fft(Vtotal) * delaycorrection) / np.fft.fft(Itotal)
 
+    # Calculate received impedance
+    with np.errstate(divide='ignore'):
+        zrec = (np.fft.fft(Vrec) * delaycorrection) / np.fft.fft(Irec)
+
     # Calculate input admittance
     with np.errstate(divide='ignore'):
         yin = np.fft.fft(Itotal) / (np.fft.fft(Vtotal) * delaycorrection)
@@ -124,6 +130,8 @@ def calculate_antenna_params(filename, tltxnumber=1, tlrxnumber=None, rxnumber=N
         Vtotalp = 20 * np.log10(np.abs((np.fft.fft(Vtotal) * delaycorrection)))
         Itotalp = 20 * np.log10(np.abs(np.fft.fft(Itotal)))
         s11 = 20 * np.log10(s11)
+        Vrecp = 20 * np.log10(np.abs((np.fft.fft(Vrec) * delaycorrection)))
+        Irecp = 20 * np.log10(np.abs(np.fft.fft(Irec)))
 
     # Replace any NaNs or Infs from zero division
     Vincp[np.invert(np.isfinite(Vincp))] = 0
@@ -133,12 +141,14 @@ def calculate_antenna_params(filename, tltxnumber=1, tlrxnumber=None, rxnumber=N
     Vtotalp[np.invert(np.isfinite(Vtotalp))] = 0
     Itotalp[np.invert(np.isfinite(Itotalp))] = 0
     s11[np.invert(np.isfinite(s11))] = 0
+    Vrecp[np.invert(np.isfinite(Vrefp))] = 0
+    Irecp[np.invert(np.isfinite(Irefp))] = 0
 
     # Create dictionary of antenna parameters
     antennaparams = {'time': time, 'freqs': freqs, 'Vinc': Vinc, 'Vincp': Vincp, 'Iinc': Iinc, 'Iincp': Iincp,
                      'Vref': Vref, 'Vrefp': Vrefp, 'Iref': Iref, 'Irefp': Irefp,
                      'Vtotal': Vtotal, 'Vtotalp': Vtotalp, 'Itotal': Itotal, 'Itotalp': Itotalp,
-                     's11': s11, 'zin': zin, 'yin': yin}
+                     's11': s11, 'zin': zin, 'yin': yin, 'zrec':zrec, 'Vrec': Vrec, 'Vrecp': Vrecp, 'Irec': Irec, 'Irecp': Irecp}
     if tlrxnumber or rxnumber:
         with np.errstate(divide='ignore'): # Ignore warning from taking a log of any zero values
             s21 = 20 * np.log10(s21)
@@ -148,7 +158,7 @@ def calculate_antenna_params(filename, tltxnumber=1, tlrxnumber=None, rxnumber=N
     return antennaparams
 
 
-def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref, Irefp, Vtotal, Vtotalp, Itotal, Itotalp, s11, zin, yin, s21=None):
+def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref, Irefp, Vtotal, Vtotalp, Itotal, Itotalp, s11, zin, zrec, yin, Vrec, Vrecp, Irec, Irecp, s21=None):
     """Plots antenna parameters - incident, reflected and total volatges and currents; s11, (s21) and input impedance.
 
     Args:
@@ -183,8 +193,9 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
 
     # Figure 1
     # Plot incident voltage
-    fig1, ax = plt.subplots(num='Transmitter transmission line parameters', figsize=(30, 12), facecolor='w', edgecolor='w')
-    gs1 = gridspec.GridSpec(6, 2, hspace=0.7)
+    fig1, ax = plt.subplots(num='Transmitter transmission line parameters', figsize=(30, 16), facecolor='w', edgecolor='w')
+    ax.axis('off')
+    gs1 = gridspec.GridSpec(8, 2, hspace=0.7)
     ax = plt.subplot(gs1[0, 0])
     ax.plot(time, Vinc, 'r', lw=2, label='Vinc')
     ax.set_title('Incident voltage')
@@ -310,13 +321,58 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     ax.set_ylabel('Power [dB]')
     ax.grid(which='both', axis='both', linestyle='-.')
 
+    # Plot received  voltage
+    ax = plt.subplot(gs1[6, 0])
+    ax.plot(time, Vrec, 'r', lw=2, label='Vref')
+    ax.set_title('Received voltage')
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel('Voltage [V]')
+    ax.set_xlim([0, np.amax(time)])
+    ax.grid(which='both', axis='both', linestyle='-.')
+
+    ## Plot frequency spectra of received voltage
+    ax = plt.subplot(gs1[6, 1])
+    markerline, stemlines, baseline = ax.stem(freqs[pltrange], Vrecp[pltrange], '-.')
+    plt.setp(baseline, 'linewidth', 0)
+    plt.setp(stemlines, 'color', 'r')
+    plt.setp(markerline, 'markerfacecolor', 'r', 'markeredgecolor', 'r')
+    ax.plot(freqs[pltrange], Vrecp[pltrange], 'r', lw=2)
+    ax.set_title('Received voltage')
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Power [dB]')
+    ax.grid(which='both', axis='both', linestyle='-.')
+
+
+    # Plot received current
+    ax = plt.subplot(gs1[7, 0])
+    ax.plot(time, Irec, 'b', lw=2, label='Irec')
+    ax.set_title('Received current')
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel('Current [A]')
+    ax.set_xlim([0, np.amax(time)])
+    ax.grid(which='both', axis='both', linestyle='-.')
+
+    ## Plot frequency spectra of received current
+    ax = plt.subplot(gs1[7, 1])
+    markerline, stemlines, baseline = ax.stem(freqs[pltrange], Irecp[pltrange], '-.')
+    plt.setp(baseline, 'linewidth', 0)
+    plt.setp(stemlines, 'color', 'b')
+    plt.setp(markerline, 'markerfacecolor', 'b', 'markeredgecolor', 'b')
+    ax.plot(freqs[pltrange], Irecp[pltrange], 'b', lw=2)
+    ax.set_title('Received current')
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Power [dB]')
+    ax.grid(which='both', axis='both', linestyle='-.')
+
+
 
 
     # ========================================================================================================
     # Figure 2
     # Plot frequency spectra of s11
     fig2, ax = plt.subplots(num='Antenna parameters', figsize=(20, 12), facecolor='w', edgecolor='w')
-    gs2 = gridspec.GridSpec(3, 2, hspace=0.3)
+    ax.axis('off')
+    gs2 = gridspec.GridSpec(4, 2, hspace=0.3)
     ax = plt.subplot(gs2[0, 0])
     markerline, stemlines, baseline = ax.stem(freqs[pltrange], s11[pltrange], '-.')
     plt.setp(baseline, 'linewidth', 0)
@@ -404,18 +460,52 @@ def mpl_plot(filename, time, freqs, Vinc, Vincp, Iinc, Iincp, Vref, Vrefp, Iref,
     ax.set_ylim([89, 90])
     ax.grid(which='both', axis='both', linestyle='-.')
 
+    # Plot received impedance (magnitude)
+    print(np.abs(zrec[pltrange]))
+    ax = plt.subplot(gs2[3, 0])
+    markerline, stemlines, baseline = ax.stem(freqs[pltrange], np.abs(zrec[pltrange]), '-.')
+    plt.setp(baseline, 'linewidth', 0)
+    plt.setp(stemlines, 'color', 'g')
+    plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
+    ax.plot(freqs[pltrange], np.abs(zrec[pltrange]), 'g', lw=2)
+    ax.set_title('Received impedance (magnitude) $= |Y| = |V_{rec} / I_{rec}|$')
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Impedance [Ohms]')
+    #ax.set_xlim([0.88e9, 1.02e9])
+    #ax.set_ylim([0, 2e-4])
+    ax.grid(which='both', axis='both', linestyle='-.')
+
+    # Plot received impedance (angle)
+    print(np.angle(zrec[pltrange], deg=True))
+    ax = plt.subplot(gs2[3, 1])
+    markerline, stemlines, baseline = ax.stem(freqs[pltrange], np.angle(zrec[pltrange], deg=True), '-.')
+    plt.setp(baseline, 'linewidth', 0)
+    plt.setp(stemlines, 'color', 'g')
+    plt.setp(markerline, 'markerfacecolor', 'g', 'markeredgecolor', 'g')
+    ax.plot(freqs[pltrange], np.angle(zrec[pltrange], deg=True), 'g', lw=2)
+    ax.set_title('Received impedance (phase) $= angle(Y) = angle(V_{rec} / I_{rec})$')
+    ax.set_xlabel('Frequency [Hz]')
+    ax.set_ylabel('Phase [degrees]')
+    #ax.set_xlim([0.88e9, 1.02e9])
+    ax.set_ylim([90, 91])
+    ax.grid(which='both', axis='both', linestyle='-.')
+
     # Save a PDF/PNG of the figure
     # fig1.savefig(os.path.splitext(os.path.abspath(filename))[0] + '_tl_params.png', dpi=150, format='png', bbox_inches='tight', pad_inches=0.1)
     # fig2.savefig(os.path.splitext(os.path.abspath(filename))[0] + '_ant_params.png', dpi=150, format='png', bbox_inches='tight', pad_inches=0.1)
-    fig1.savefig(os.path.splitext(os.path.abspath(filename))[0] + '_tl_params.pdf', dpi=None, format='pdf', bbox_inches='tight', pad_inches=0.1)
-    fig2.savefig(os.path.splitext(os.path.abspath(filename))[0] + '_ant_params.pdf', dpi=None, format='pdf', bbox_inches='tight', pad_inches=0.1)
+    dirname = os.path.dirname(os.path.relpath(filename)).split('/')[-1]
+    fig1.savefig(dirname + '_tl_params.pdf', dpi=None, format='pdf', bbox_inches='tight', pad_inches=0.1)
+    fig2.savefig(dirname + '_ant_params.pdf', dpi=None, format='pdf', bbox_inches='tight', pad_inches=0.1)
+
+    plt.close(fig1)
+    plt.close(fig2)
 
     return plt
 
 
 if __name__ == "__main__":
 
-    # Parse command line arguments
+    # Parse command line arguments)
     parser = argparse.ArgumentParser(description='Plots antenna parameters (s11, s21 parameters and input impedance) from an output file containing a transmission line source.', usage='cd gprMax; python -m tools.plot_antenna_params outputfile')
     parser.add_argument('outputfile', help='name of output file including path')
     parser.add_argument('--tltx-num', default=1, type=int, help='transmitter antenna - transmission line number')
@@ -426,4 +516,4 @@ if __name__ == "__main__":
 
     antennaparams = calculate_antenna_params(args.outputfile, args.tltx_num, args.tlrx_num, args.rx_num, args.rx_component)
     plthandle = mpl_plot(args.outputfile, **antennaparams)
-    plthandle.show()
+#    plthandle.show()
