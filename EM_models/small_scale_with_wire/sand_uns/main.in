@@ -32,8 +32,8 @@ center = domain_size / 2
 
 ## Soil box
 lower_corner = np.array([0, 0, 0])
-material(80, 0, 1, 0, 'water')
-box(*lower_corner, *domain_size, 'water')
+material(6, 0, 1, 0, 'sand')
+box(*lower_corner, *domain_size, 'sand')
 
 ## Main cylinder (gap between electrodes and soil)
 main_diameter = outer_diameter + outer_gap
@@ -53,6 +53,10 @@ gap_z1 = center[2] - electrodes_gap / 2
 gap_z2 = center[2] + electrodes_gap / 2
 cylinder(center[0], center[1], gap_z1, center[0], center[1], gap_z2, gap_diameter, 'free_space')
 
+## Wire from receiver electrode
+cylinder(center[0] + inner_diameter, center[1], gap_z2 + step_size, center[0] + inner_diameter/2, center[1], gap_z2 + step_size, step_size, 'pec')
+cylinder(center[0] + inner_diameter/2, center[1], gap_z2 + step_size, center[0] + inner_diameter/2, center[1], gap_z1 - electrodes_height, step_size, 'pec')
+
 ## Source definition
 waveform('gaussiandot', 5, 1e8, 'my_gauss')
 
@@ -61,13 +65,12 @@ x_shift = (inner_diameter + outer_diameter) / 2
 
 ## Transmission line connected to the lower electrode
 input_impedance = 50
-transmission_line('z', center[0] + x_shift, center[1], gap_z1, input_impedance, 'my_gauss')
+transmission_line('z', center[0] + inner_diameter/2, center[1], gap_z1 - electrodes_height - step_size, input_impedance, 'my_gauss')
 
 ## Reciever on other electrode
 ## E field is only on the conductor surface so we must choose RX carefully
 ## bottom edge, inner surface
-rx(center[0] + inner_diameter, center[1], gap_z2 - steps[2]/2, 'rx1', 'Ex Ey Ez Hx Hy Hz Ix Iy Iz')
-
+rx(center[0] + x_shift, center[1], gap_z1 - electrodes_height - step_size, 'rx1', 'Ex Ey Ez Hx Hy Hz Ix Iy Iz')
 
 ## Geometry viewing configuration
 geometry_view(0, 0, 0, *domain_size, step_size, step_size, step_size, 'geometry', 'n')

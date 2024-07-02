@@ -32,8 +32,8 @@ center = domain_size / 2
 
 ## Soil box
 lower_corner = np.array([0, 0, 0])
-material(80, 0, 1, 0, 'water')
-box(*lower_corner, *domain_size, 'water')
+material(30, 0, 1, 0, 'sand')
+box(*lower_corner, *domain_size, 'sand')
 
 ## Main cylinder (gap between electrodes and soil)
 main_diameter = outer_diameter + outer_gap

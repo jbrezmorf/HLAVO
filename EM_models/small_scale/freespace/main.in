@@ -65,7 +65,7 @@ transmission_line('z', center[0] + x_shift, center[1], gap_z1, input_impedance, 
 ## Reciever on other electrode
 ## E field is only on the conductor surface so we must choose RX carefully
 ## bottom edge, inner surface
-rx(center[0] + inner_diameter, center[1], gap_z2 - steps[2]/2)
+rx(center[0] + inner_diameter, center[1], gap_z2 - steps[2]/2, 'rx1', 'Ex Ey Ez Hx Hy Hz Ix Iy Iz')
 
 
 ## Geometry viewing configuration
