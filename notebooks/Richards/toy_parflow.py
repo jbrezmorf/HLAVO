@@ -8,6 +8,7 @@ import numpy as np
 import os, pathlib
 from matplotlib import pyplot as plt
 
+
 class ToyProblem:
     def __init__(self, workdir=None):
         # Define a toy problem for PARFLOW simulator
@@ -76,7 +77,7 @@ class ToyProblem:
         self._run.Geom.Perm.Names = "domain"
 
         self._run.Geom.domain.Perm.Type = "Constant"
-        self._run.Geom.domain.Perm.Value = 30.8 / 100 / 24 # 1.2833e-2 [cm/d] -> [m/s]
+        self._run.Geom.domain.Perm.Value = 30.8 / 100 / 24 #30.8 / 100 / 24 # 1.2833e-2 [cm/d] -> [m/s]
 
         self._run.Perm.TensorType = "TensorByGeom"
         self._run.Geom.Perm.TensorByGeom.Names = "domain"
@@ -118,7 +119,7 @@ class ToyProblem:
         self._run.TimingInfo.BaseUnit = 1.0e-4
         self._run.TimingInfo.StartCount = 0
         self._run.TimingInfo.StartTime = 0.0
-        self._run.TimingInfo.StopTime = 48.0  # [h]
+        self._run.TimingInfo.StopTime = 60 #48.0  # [h]
         self._run.TimingInfo.DumpInterval = -1
         self._run.TimeStep.Type = "Constant"
         self._run.TimeStep.Value = 2.5e-2     # [h]
@@ -174,7 +175,7 @@ class ToyProblem:
 
         self._run.Patch.top.BCPressure.Type = "FluxConst"
         self._run.Patch.top.BCPressure.Cycle = "constant"
-        self._run.Patch.top.BCPressure.alltime.Value = -2e-3
+        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-2e-3
 
         #---------------------------------------------------------
         # Initial conditions: water pressure
@@ -216,6 +217,10 @@ class ToyProblem:
         self._run.Solver.Linear.Preconditioner.MGSemi.MaxLevels = 10
 
         self._run.Solver.PrintVelocities = True
+
+        #self._run.Solver.Pressure.FileName = "pressure.out"
+        #self._run.Solver.Saturation.FileName = "saturation.out"
+
 
 
         # === Other required, but unused parameters ===
@@ -263,14 +268,16 @@ class ToyProblem:
         # === End Other required and unused parameters ===
 
 
-    def set_init_pressure(self):
+    def set_init_pressure(self, init_p=None):
         # example of setting custom initial pressure
         nz = self._run.ComputationalGrid.NZ
         dz = self._run.ComputationalGrid.DZ
         zz = np.linspace(0,-(nz-1)*dz,nz)
 
-        init_p = np.zeros((nz,1,1))
-        init_p[:,0,0] = zz-2
+
+        if init_p is None:
+            init_p = np.zeros((nz,1,1))
+            init_p[:, 0, 0] = zz-2
 
         filename = "toy_richards.init_pressure.pfb"
         filepath = self._workdir / pathlib.Path(filename)
@@ -284,11 +291,9 @@ class ToyProblem:
         self._run.write(file_format='yaml')
         self._run.run(working_directory=self._workdir)
 
-
     def load_yaml(self, yaml_file):
         ## Create a Run object from a .yaml file
         self._run = Run.from_definition(yaml_file)
-
 
     def save_pressure(self, image_file):
         cwd = settings.get_working_directory()
@@ -304,13 +309,24 @@ class ToyProblem:
         # Iterate through the timesteps of the DataAccessor object
         # i goes from 0 to n_timesteps - 1
         for i in data.times:
+            # print("time i ", i)
+            # print("data.time ", data.time)
+            # print("data.pressure[:5] ", data.pressure[:2])
+            #pressure[i, :] = data.pressure.reshape(nz)
             pressure[data.time,:] = data.pressure.reshape(nz)
             data.time += 1
 
+        #print("np.flip(pressure) ", np.flip(pressure).shape)
+        flipped_pressure = np.flip(pressure)
+        #print("flipped_pressure[:, 2] ", flipped_pressure[:, 2])
+
         plt.imshow(np.flip(pressure), aspect='auto')
         nticks = int(ntimes/10)
+        #print("n ticks ", nticks)
+
         plt.yticks( np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]) )
         nzticks = int(nz/10)
+        #print("nzticks ", nzticks)
         plt.xticks( np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
         plt.colorbar()
         plt.title("pressure")
