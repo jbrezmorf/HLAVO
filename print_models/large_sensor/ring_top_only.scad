@@ -237,5 +237,12 @@ module main_assembly() {
     }   
 }
 
+ 
 // Render the assembly
-main_assembly();
+difference() {
+    main_assembly();  
+    translate([0, 0, -main_height/2])
+    cube([3*outer_radius, 3*outer_radius, main_height], center=true);
+    translate([0, 0, +main_height])
+    cube([3*outer_radius, 3*outer_radius, main_height], center=true);
+}
