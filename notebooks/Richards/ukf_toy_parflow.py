@@ -2,7 +2,7 @@ import pde  # py-pde
 import numpy as np
 import scipy as sc
 import matplotlib.pyplot as plt
-
+from functools import reduce
 import dataclasses
 from parflow.tools import settings
 #from notebooks.Richards.richards_sim import mu_from_h, h_from_mu, RichardsPDE, Hydraulic
@@ -13,6 +13,20 @@ from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
 
 # mes_1_loc = 0.1
 # mes_2_loc = 0.3
+
+
+# model_params = []
+#
+# model_params = [#"Geom.domain.Perm.Value", "Geom.domain.RelPerm.Alpha", "Geom.domain.RelPerm.N",
+#                 "Geom.domain.Saturation.Alpha", "Geom.domain.Saturation.N", "Geom.domain.Saturation.SRes",
+#                 "Geom.domain.Saturation.SSat"#, "Patch.top.BCPressure.alltime.Value"
+# ]
+
+model_params = {"Geom.domain.Saturation.Alpha": 0.58,
+                "Geom.domain.Saturation.N": 3.7,
+                "Geom.domain.Saturation.SRes": 0.06,
+                "Geom.domain.Saturation.SSat": 0.47
+}
 
 def generating_meassurements(data_name):
     #############################
@@ -110,20 +124,42 @@ def add_noise(measurements, level=0.1):
     return noisy_measurements
 
 
+def add_model_attributes(model, state_data):
+    pass
+
+
+def get_nested_attr(obj, attr):
+    """
+    Access nested attributes of an object using a dot-separated string.
+    """
+    return reduce(getattr, attr.split('.'), obj)
+
+def set_nested_attr(obj, attr, value):
+    """
+    Set the value of a nested attribute of an object using a dot-separated string.
+    """
+    pre, _, post = attr.rpartition('.')
+    return setattr(get_nested_attr(obj, pre) if pre else obj, post, value)
+
+
 #####################
 ### Kalman filter ###
 #####################
-def state_transition_function(state_pressure_saturation, dt):
+def state_transition_function(state_data, dt):
     #print("state function call")
     #print("pressure data ", pressure_data)
     space_indices_train = get_space_indices(type="train")
     space_indices_test = get_space_indices(type="test")
 
-    len_additional_data = get_len_additional_data()
+    len_additional_data = get_len_saturation_data() + len(model_params)  # saturation data + model params
 
-    print("len state pressure saturation shape ", state_pressure_saturation.shape)
-    pressure_data = state_pressure_saturation[0:-len_additional_data]  # Extract saturation from state vector
+    print("len state pressure saturation shape ", state_data.shape)
+    pressure_data = state_data[0:-len_additional_data]  # Extract saturation from state vector
     print("pressure data shape ", pressure_data.shape)
+
+    model_params_data = state_data[-len(model_params):]
+
+    print("model_params_data ", model_params_data)
     
     pressure_data = pressure_data.reshape(pressure_data.shape[0], 1, 1)
 
@@ -131,6 +167,31 @@ def state_transition_function(state_pressure_saturation, dt):
     model.setup_config()
     model.set_init_pressure(init_p=pressure_data)
     model._run.TimingInfo.StopTime = 1
+
+    for params, value in zip(model_params, model_params_data):
+        set_nested_attr(model._run, params, value)
+
+    # value = get_nested_attr(model._run, attributes)
+    # print("value ", value)
+    # exit()
+    #
+
+
+    ## Aditional attributes
+    # model._run.Geom.domain.Perm.Value =
+    #
+    # model._run.Geom.domain.RelPerm.Alpha
+    #
+    # model._run.Geom.domain.RelPerm.N
+    #
+    # model._run.Geom.domain.Saturation.Alpha = 0.58
+    # model._run.Geom.domain.Saturation.N = 3.7
+    # model._run.Geom.domain.Saturation.SRes = 0.06
+    # model._run.Geom.domain.Saturation.SSat = 0.47
+    #
+    # model._run.Patch.top.BCPressure.alltime.Value =
+
+
     model.run()
 
     #cwd = settings.get_working_directory()
@@ -147,7 +208,6 @@ def state_transition_function(state_pressure_saturation, dt):
 
     saturation_data_loc_train = np.flip(np.squeeze(data.saturation))[space_indices_train]
 
-
     #saturation_data_loc = data.saturation[space_indices]
 
     next_state_init = list(np.squeeze(data.pressure))
@@ -156,6 +216,17 @@ def state_transition_function(state_pressure_saturation, dt):
     if len(space_indices_test) > 0:
         saturation_data_loc_test = np.flip(np.squeeze(data.saturation))[space_indices_test]
         next_state_init.extend(list(np.squeeze(saturation_data_loc_test)))
+
+    # # Add new model values
+    # model_params_new_values = []
+    # for param in model_params:
+    #     model_params_new_values.append(get_nested_attr(model._run, param))
+
+
+    model_params_new_values = model_params_data
+
+    if len(model_params_new_values) > 0:
+        next_state_init.extend(model_params_new_values)
 
     next_state_init = np.array(next_state_init)
 
@@ -171,7 +242,7 @@ def get_space_indices(type="train"):
         return [int(mes_loc / model._run.ComputationalGrid.DZ) for mes_loc in mes_locations_to_test]
 
 
-def get_len_additional_data():
+def get_len_saturation_data():
     # @TODO: return additional data length
     return len(get_space_indices(type="train")) + len(get_space_indices(type="test"))
 
@@ -179,8 +250,13 @@ def get_len_additional_data():
 def measurement_function(pressure_data, space_indices_type=None):
     print("type(pressure_data) ", pressure_data)
 
-    len_additional_data = get_len_additional_data()
-    additional_data = pressure_data[-len_additional_data:]
+    len_additional_data = get_len_saturation_data() + len(model_params)
+    if len(model_params) > 0:
+        additional_data = pressure_data[-len_additional_data:-len(model_params)]
+    else:
+        additional_data = pressure_data[-len_additional_data:]
+
+    print("measurement function additional data ", additional_data)
 
     len_space_indices_train = len(get_space_indices(type="train"))
     len_space_indices_test = len(get_space_indices(type="test"))
@@ -274,14 +350,15 @@ def sqrt_func(x):
     return result
 
 
-def set_kalman_filter(data, measurement_noise_covariance):
+def set_kalman_filter(model, data, measurement_noise_covariance):
 
-    num_locations = data.pressure.shape[0] + get_len_additional_data() # pressure + saturation
+    num_locations = data.pressure.shape[0] + get_len_saturation_data() + len(model_params) # pressure + saturation + model parameters
     #dt = 60*60  # Time between steps in seconds
     dim_z = len(mes_locations_to_train)  # Number of measurement inputs
     #initial_covariance = np.cov(noisy_measurements, rowvar=False)
 
     initial_covariance = np.eye(num_locations) * 1e-1
+    #initial_covariance[:-len(model_params), :-len(model_params)] = 0 # 1e-5
     #sigma_points = JulierSigmaPoints(n=n, kappa=1)
     sigma_points = MerweScaledSigmaPoints(n=num_locations, alpha=1e-2, beta=2.0, kappa=1, sqrt_method=sqrt_func)
     # Initialize the UKF filter
@@ -289,6 +366,7 @@ def set_kalman_filter(data, measurement_noise_covariance):
     ukf = UnscentedKalmanFilter(dim_x=num_locations, dim_z=dim_z, dt=time_step,
                                 fx=state_transition_function, hx=measurement_function, points=sigma_points)
     ukf.Q = np.ones(num_locations) * 5e-8
+    #ukf.Q[:-len(model_params)] = 1e-5
     #ukf.Q[-2:] = 0
     print("ukf.Q.shape ", ukf.Q.shape)
     print("ukf.Q ", ukf.Q)
@@ -298,7 +376,6 @@ def set_kalman_filter(data, measurement_noise_covariance):
     # exit()
 
     # best setting so far initial_covariance = np.eye(n) * 1e4, ukf.Q = np.ones(num_locations) * 1e-7
-
     data.time = 0
 
     space_indices_train = get_space_indices(type="train")
@@ -310,6 +387,31 @@ def set_kalman_filter(data, measurement_noise_covariance):
 
     if len(space_indices_test) > 0:
         initial_state_data.extend(list(np.squeeze(data.saturation[space_indices_test])))
+
+    for value in model_params.values():
+        std_val = value * 0.1
+        value_noise = np.random.normal(0, std_val)
+        print("value: {}, noise: {}, value + noise: {}".format(value, value_noise, value + value_noise))
+
+        value = value + value_noise
+
+        initial_state_data.append(value)
+
+
+    # print("model._run.Geom.domain.RelPerm.Alpha ", type(model._run.Geom.domain.RelPerm.Alpha))
+    #
+    # # Add model attributes
+    # model_params_new_values = []
+    # for param in model_params:
+    #     print("param ", param)
+    #     val = get_nested_attr(model._run, param)
+    #     print("val ", val)
+    #
+    #     model_params_new_values.append(get_nested_attr(model._run, param))
+    # if len(model_params_new_values) > 0:
+    #     initial_state_data.extend(model_params_new_values)
+    #
+    # print("model params new values ", model_params_new_values)
 
     initial_state_data = np.array(initial_state_data)
 
@@ -454,7 +556,7 @@ if __name__ == "__main__":
     space_indices_test = [int(mes_loc / model._run.ComputationalGrid.DZ) for mes_loc in mes_locations_to_test]
 
 
-    ukf = set_kalman_filter(data, measurement_noise_covariance)
+    ukf = set_kalman_filter(model, data, measurement_noise_covariance)
     pred_loc_measurements, test_pred_loc_measurements = run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test)
     plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test, measurements_data_name)
 
