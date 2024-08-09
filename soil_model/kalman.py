@@ -6,27 +6,24 @@ from functools import reduce
 import dataclasses
 from parflow.tools import settings
 #from notebooks.Richards.richards_sim import mu_from_h, h_from_mu, RichardsPDE, Hydraulic
-from notebooks.Richards.toy_parflow import ToyProblem
+from soil_model.parflow_model import ToyProblem
 from filterpy.kalman import UnscentedKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
 
-# mes_1_loc = 0.1
-# mes_2_loc = 0.3
 
+######
+# Unscented Kalman Filter for Parflow model
+# see __main__ for details
+######
 
-# model_params = []
-#
-# model_params = [#"Geom.domain.Perm.Value", "Geom.domain.RelPerm.Alpha", "Geom.domain.RelPerm.N",
-#                 "Geom.domain.Saturation.Alpha", "Geom.domain.Saturation.N", "Geom.domain.Saturation.SRes",
-#                 "Geom.domain.Saturation.SSat"#, "Patch.top.BCPressure.alltime.Value"
-# ]
 
 model_params = {"Geom.domain.Saturation.Alpha": 0.58,
                 "Geom.domain.Saturation.N": 3.7,
                 "Geom.domain.Saturation.SRes": 0.06,
                 "Geom.domain.Saturation.SSat": 0.47
 }
+
 
 def generating_meassurements(data_name):
     #############################
@@ -350,14 +347,13 @@ def sqrt_func(x):
     return result
 
 
-def set_kalman_filter(model, data, measurement_noise_covariance):
-
+def set_kalman_filter(data, measurement_noise_covariance):
     num_locations = data.pressure.shape[0] + get_len_saturation_data() + len(model_params) # pressure + saturation + model parameters
     #dt = 60*60  # Time between steps in seconds
     dim_z = len(mes_locations_to_train)  # Number of measurement inputs
     #initial_covariance = np.cov(noisy_measurements, rowvar=False)
 
-    initial_covariance = np.eye(num_locations) * 1e-1
+    initial_state_covariance = np.eye(num_locations) * 1e-1
     #initial_covariance[:-len(model_params), :-len(model_params)] = 0 # 1e-5
     #sigma_points = JulierSigmaPoints(n=n, kappa=1)
     sigma_points = MerweScaledSigmaPoints(n=num_locations, alpha=1e-2, beta=2.0, kappa=1, sqrt_method=sqrt_func)
@@ -416,7 +412,7 @@ def set_kalman_filter(model, data, measurement_noise_covariance):
     initial_state_data = np.array(initial_state_data)
 
     ukf.x = initial_state_data #initial_state_data #(state.data[int(0.3/0.05)], state.data[int(0.6/0.05)])#state  # Initial state vector
-    ukf.P = initial_covariance  # Initial state covariance matrix
+    ukf.P = initial_state_covariance  # Initial state covariance matrix
 
     return ukf
 
@@ -428,7 +424,6 @@ def run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indice
     print("noisy_meaesurements ", noisy_measurements)
     for measurement in noisy_measurements:
         print("measurement ", measurement)
-
         ukf.predict()
         ukf.update(measurement)
         print("sum ukf.P ", np.sum(ukf.P))
@@ -536,10 +531,11 @@ if __name__ == "__main__":
     pr = cProfile.Profile()
     pr.enable()
 
+    # Measurements locations
     mes_locations_to_train = [0.5, 1.5]
     mes_locations_to_test = [1, 2]
 
-    measurements_data_name = "saturation"
+    measurements_data_name = "saturation"  # "pressure"
 
     #############################
     ### Generate measurements ###
@@ -555,9 +551,24 @@ if __name__ == "__main__":
     space_indices_train = [int(mes_loc / model._run.ComputationalGrid.DZ) for mes_loc in mes_locations_to_train]
     space_indices_test = [int(mes_loc / model._run.ComputationalGrid.DZ) for mes_loc in mes_locations_to_test]
 
+    #######################################
+    ### Unscented Kalman filter setting ###
+    ### - Sigma points
+    ### - initital state covariance
+    ### - UKF metrices
+    ########################################
+    ukf = set_kalman_filter(data, measurement_noise_covariance)
 
-    ukf = set_kalman_filter(model, data, measurement_noise_covariance)
+    #######################################
+    ### Kalman filter run ###
+    ### For each measurement (time step) ukf.update() and ukf.predict() are called
+    ########################################
     pred_loc_measurements, test_pred_loc_measurements = run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test)
+
+
+    ##############################
+    ### Results postprocessing ###
+    ##############################
     plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test, measurements_data_name)
 
     pr.disable()
