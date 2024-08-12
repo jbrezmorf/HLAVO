@@ -78,7 +78,6 @@ class ToyProblem:
 
         self._run.Geom.domain.Perm.Type = "Constant"
         self._run.Geom.domain.Perm.Value = 30.8 / 100 / 24 #30.8 / 100 / 24 # 1.2833e-2 [cm/d] -> [m/s]
-
         self._run.Perm.TensorType = "TensorByGeom"
         self._run.Geom.Perm.TensorByGeom.Names = "domain"
         self._run.Geom.domain.Perm.TensorValX = 1.0
