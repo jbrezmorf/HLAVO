@@ -26,31 +26,73 @@ model_params = {"Geom.domain.Saturation.Alpha": 0.58,
 
 
 def generating_meassurements(data_name):
+    flux_bcpressure_per_time = [-2e-2] * 48 + [0] * 24 + [-2e-2] * 36
+
+    print("flux_bcpressure_per_time ", flux_bcpressure_per_time)
+
+    measurements = []
+    measurements_to_test = []
+
     #############################
     ##   Model initialization  ##
     #############################
     model = ToyProblem(workdir="output-toy")
     model.setup_config()
     model.set_init_pressure()
+    model._run.TimingInfo.StopTime = 1
+    model._run.Patch.top.BCPressure.alltime.Value = flux_bcpressure_per_time[0]
     model.run()
 
-    cwd = settings.get_working_directory()
     settings.set_working_directory(model._workdir)
 
-    #############################
-    ### Generate measurements ###
-    #############################
     data = model._run.data_accessor
-    ntimes = len(data.times)
-    nz = data.pressure.shape[0]
-    pressure = np.zeros((ntimes, nz))
+    data.time = 1 / model._run.TimeStep.Value
 
+    data_pressure = data.pressure
 
-    measurements = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
+    measurement = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
                                     mes_locations=mes_locations_to_train, data_name=data_name)
 
-    measurements_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
+    measurement_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
                                             mes_locations=mes_locations_to_test, data_name=data_name)
+
+    measurements.append(measurement[0])
+    measurements_to_test.append(measurement_to_test[0])
+
+    # Loop through time
+    for i in range(1, len(flux_bcpressure_per_time)):
+        print("data_pressure ", data_pressure)
+
+        model = ToyProblem(workdir="output-toy")
+        model.setup_config()
+        model.set_init_pressure(init_p=data_pressure)
+        model._run.TimingInfo.StopTime = 1
+
+        model._run.Patch.top.BCPressure.alltime.Value = flux_bcpressure_per_time[i]
+        model.run()
+
+        settings.set_working_directory(model._workdir)
+
+        data = model._run.data_accessor
+        data.time = 1 / model._run.TimeStep.Value
+
+        data_pressure = data.pressure
+
+        measurement = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
+                                       mes_locations=mes_locations_to_train, data_name=data_name)
+
+        measurement_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
+                                               mes_locations=mes_locations_to_test, data_name=data_name)
+
+        measurements.append(measurement[0])
+        measurements_to_test.append(measurement_to_test[0])
+
+
+    # measurements = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
+    #                                 mes_locations=mes_locations_to_train, data_name=data_name)
+    #
+    # measurements_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
+    #                                         mes_locations=mes_locations_to_test, data_name=data_name)
 
     noisy_measurements = add_noise(np.array(measurements), level=0.1)
     noisy_measurements_to_test = add_noise(np.array(measurements_to_test), level=0.1)
@@ -78,6 +120,9 @@ def generating_meassurements(data_name):
         axes.set_ylabel(data_name)
         fig.legend()
         plt.show()
+
+
+    exit()
 
     # residuals = noisy_measurements - measurements
     # # print("residuals ", residuals)

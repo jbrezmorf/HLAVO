@@ -175,7 +175,7 @@ class ToyProblem:
 
         self._run.Patch.top.BCPressure.Type = "FluxConst"
         self._run.Patch.top.BCPressure.Cycle = "constant"
-        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-2e-3
+        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-2e-2 #-2e-3
 
         #---------------------------------------------------------
         # Initial conditions: water pressure
@@ -274,13 +274,15 @@ class ToyProblem:
         dz = self._run.ComputationalGrid.DZ
         zz = np.linspace(0,-(nz-1)*dz,nz)
 
-
         if init_p is None:
             init_p = np.zeros((nz,1,1))
             init_p[:, 0, 0] = zz-2
 
         filename = "toy_richards.init_pressure.pfb"
         filepath = self._workdir / pathlib.Path(filename)
+
+
+        print("filepath ", filepath)
         write_pfb(str(filepath), init_p)
 
         self._run.ICPressure.Type = "PFBFile"
