@@ -10,6 +10,7 @@ from soil_model.parflow_model import ToyProblem
 from filterpy.kalman import UnscentedKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
+from soil_model.et import ET0
 
 
 ######
@@ -18,86 +19,143 @@ from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
 ######
 
 
-model_params = {"Geom.domain.Saturation.Alpha": 0.58,
+model_params = {"Geom.domain.RelPerm.Alpha":0.58,
+                "Geom.domain.Saturation.Alpha":  0.58,
+                "Geom.domain.RelPerm.N":3.7,
                 "Geom.domain.Saturation.N": 3.7,
-                "Geom.domain.Saturation.SRes": 0.06,
-                "Geom.domain.Saturation.SSat": 0.47
+                "Geom.domain.Saturation.SRes":0.06,
+                "Geom.domain.Saturation.SSat":  0.47,
+                "Patch.top.BCPressure.alltime.Value":  -2e-2
+
+                #self._run.Geom.domain.Perm.Value
 }
 
+# model_params_std = {"Geom.domain.RelPerm.Alpha":  1e-2,
+#                 "Geom.domain.Saturation.Alpha": 1e-2,
+#                 "Geom.domain.RelPerm.N":3e-1,
+#                 "Geom.domain.Saturation.N": 3e-1,
+#                 "Geom.domain.Saturation.SRes":  1e-3,
+#                 "Geom.domain.Saturation.SSat": 4e-2,
+#                 "Patch.top.BCPressure.alltime.Value":  1e-3
+#
+#                 # self._run.Geom.domain.Perm.Value
+#                 }
+model_params_std = {"Geom.domain.RelPerm.Alpha":  1e-3,
+                "Geom.domain.Saturation.Alpha": 1e-4,
+                "Geom.domain.RelPerm.N":3e-2,
+                "Geom.domain.Saturation.N": 3e-3,
+                "Geom.domain.Saturation.SRes":  1e-4,
+                "Geom.domain.Saturation.SSat": 4e-4,
+                "Patch.top.BCPressure.alltime.Value":  1e-4
+                # self._run.Geom.domain.Perm.Value
+                }
 
-def generating_meassurements(data_name):
-    flux_bcpressure_per_time = [-2e-2] * 48 + [0] * 24 + [-2e-2] * 36
+#model_params = {}
 
-    print("flux_bcpressure_per_time ", flux_bcpressure_per_time)
 
-    measurements = []
-    measurements_to_test = []
+def model_iteration(flux_bc_pressure, data_name, data_pressure=None):
+    et_per_time = ET0(n=14, T=20, u2=10, Tmax=27, Tmin=12, RHmax=0.55, RHmin=0.35,
+                      month=6) / 1000 / 24  # mm/day to m/sec
 
-    #############################
-    ##   Model initialization  ##
-    #############################
     model = ToyProblem(workdir="output-toy")
     model.setup_config()
-    model.set_init_pressure()
+    if data_pressure is not None:
+        model.set_init_pressure(init_p=data_pressure)
+    else:
+        model.set_init_pressure()
     model._run.TimingInfo.StopTime = 1
-    model._run.Patch.top.BCPressure.alltime.Value = flux_bcpressure_per_time[0]
+    #print("flux_bcpressure_per_time[0] + et_per_time ", flux_bcpressure_per_time[0] + et_per_time)
+    model._run.Patch.top.BCPressure.alltime.Value = flux_bc_pressure + et_per_time
+    iter_values = []
+    for params, value in model_params.items():
+        if params == "Patch.top.BCPressure.alltime.Value":
+            continue
+        set_nested_attr(model._run, params, value)
+        iter_values.append(value)
     model.run()
 
     settings.set_working_directory(model._workdir)
 
     data = model._run.data_accessor
     data.time = 1 / model._run.TimeStep.Value
-
     data_pressure = data.pressure
 
     measurement = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
-                                    mes_locations=mes_locations_to_train, data_name=data_name)
+                                   mes_locations=mes_locations_to_train, data_name=data_name)
 
     measurement_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
-                                            mes_locations=mes_locations_to_test, data_name=data_name)
+                                           mes_locations=mes_locations_to_test, data_name=data_name)
 
-    measurements.append(measurement[0])
-    measurements_to_test.append(measurement_to_test[0])
+    iter_state = list(np.squeeze(data.pressure))
+    iter_state.extend(list(np.squeeze(measurement[0])))
+    iter_state.extend(list(np.squeeze(measurement_to_test[0])))
+    iter_state.extend(iter_values)
 
+    return model, data, measurement[0], measurement_to_test[0], iter_values
+
+def generate_measurements(data_name):
+    #flux_bcpressure_per_time = [-2e-2] * 24 + [0] * 16 + [-2e-2] * 32
+    #flux_bcpressure_per_time = [-1.3889 * 10 ** -6] * 48 + [0] * 24 + [-1.3889 * 10 ** -6] * 36
+
+    #flux_bcpressure_per_time = [-2e-3] * 24 + [0] * 4 + [-2e-3] * 6
+    flux_bcpressure_per_time = [-2e-2] * 72
+
+    # Calculate ET0 - see soil_model.et for details. Input parameters:
+    # n = daylight hours [-]
+    # T = mean daily air temperature at 2 m height [°C]
+    # u2 = wind speed at 2 m height [m/s]
+    # month = month number of actual day [1-12]
+    # Tmax, Tmin = 10 day or monthly average of maximal/minimal daily temperatures [°C]
+    # RHmax, RHmin = 10 day or monthly average of maximal/minimal relative humidity [0-1]
+    et_per_time = ET0(n=14, T=20, u2=10, Tmax=27, Tmin=12, RHmax=0.55, RHmin=0.35, month=6) / 1000 / 24  # mm/day to m/sec
+
+    print("et per time ", et_per_time)
+    print("flux_bcpressure_per_time ", flux_bcpressure_per_time)
+
+    measurements = []
+    measurements_to_test = []
+    state_data = []
+
+    #############################
+    ##   Model initialization  ##
+    #############################
+
+    # model, data, measurement_train, measurement_test, iter_values = model_iteration( flux_bcpressure_per_time[0], data_name)
+    # measurements.append(measurement_train)
+    # measurements_to_test.append(measurement_test)
+    #
+    # data_pressure = data.pressure
+    #
+    # iter_state = list(np.squeeze(data_pressure))
+    # iter_state.extend(list(np.squeeze(measurement_train)))
+    # iter_state.extend(list(np.squeeze(measurement_test)))
+    # iter_state.extend(iter_values)
+    #
+    # state_data.append(iter_state)
+    #
     # Loop through time
-    for i in range(1, len(flux_bcpressure_per_time)):
-        print("data_pressure ", data_pressure)
-
-        model = ToyProblem(workdir="output-toy")
-        model.setup_config()
-        model.set_init_pressure(init_p=data_pressure)
-        model._run.TimingInfo.StopTime = 1
-
-        model._run.Patch.top.BCPressure.alltime.Value = flux_bcpressure_per_time[i]
-        model.run()
-
-        settings.set_working_directory(model._workdir)
-
-        data = model._run.data_accessor
-        data.time = 1 / model._run.TimeStep.Value
+    for i in range(0, len(flux_bcpressure_per_time)):
+        if i == 0:
+            data_pressure = None
+        model, data, measurement_train, measurement_test, iter_values = model_iteration(flux_bcpressure_per_time[i], data_name, data_pressure=data_pressure)
+        measurements.append(measurement_train)
+        measurements_to_test.append(measurement_test)
 
         data_pressure = data.pressure
 
-        measurement = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
-                                       mes_locations=mes_locations_to_train, data_name=data_name)
+        iter_state = list(np.squeeze(data_pressure))
+        iter_state.extend(list(np.squeeze(measurement_train)))
+        iter_state.extend(list(np.squeeze(measurement_test)))
+        iter_state.extend(iter_values)
 
-        measurement_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
-                                               mes_locations=mes_locations_to_test, data_name=data_name)
-
-        measurements.append(measurement[0])
-        measurements_to_test.append(measurement_to_test[0])
+        state_data.append(iter_state)
 
 
-    # measurements = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
-    #                                 mes_locations=mes_locations_to_train, data_name=data_name)
-    #
-    # measurements_to_test = get_measurements(model._run.data_accessor, space_step=model._run.ComputationalGrid.DZ,
-    #                                         mes_locations=mes_locations_to_test, data_name=data_name)
-
-    noisy_measurements = add_noise(np.array(measurements), level=0.1)
-    noisy_measurements_to_test = add_noise(np.array(measurements_to_test), level=0.1)
+    noisy_measurements = add_noise_to_measurements(np.array(measurements), level=0.1)
+    noisy_measurements_to_test = add_noise_to_measurements(np.array(measurements_to_test), level=0.1)
 
     measurements = np.array(measurements)
+    measurements_to_test = np.array(measurements_to_test)
     noisy_measurements = np.array(noisy_measurements)
     noisy_measurements_to_test = np.array(noisy_measurements_to_test)
 
@@ -121,9 +179,6 @@ def generating_meassurements(data_name):
         fig.legend()
         plt.show()
 
-
-    exit()
-
     # residuals = noisy_measurements - measurements
     # # print("residuals ", residuals)
     # # residuals = residuals * 2
@@ -132,7 +187,7 @@ def generating_meassurements(data_name):
     # # print("10 percent cov ", np.cov(noisy_measurements*0.1, rowvar=False))
     # # exit()
     # # pde.plot_kymograph(storage)
-    return model, data, measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test
+    return model, data, measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, state_data
 
 
 def get_measurements(data, space_step, mes_locations=None, data_name="pressure"):
@@ -148,7 +203,6 @@ def get_measurements(data, space_step, mes_locations=None, data_name="pressure")
             data_to_measure = data.saturation
         elif data_name == "pressure":
             data_to_measure = data.pressure
-
         measurements[data_t, :] = np.flip(np.squeeze(data_to_measure))[space_indices]
         data.time += 1
 
@@ -157,12 +211,28 @@ def get_measurements(data, space_step, mes_locations=None, data_name="pressure")
     #print("field ", field.data[int(mes_1_loc/space_step)])
 
 
-def add_noise(measurements, level=0.1):
+def add_noise(data_array, noise_level=0.1, std=None, type="uniform"):
+    if type == "uniform":
+        noise = np.random.uniform(-noise_level * data_array, noise_level * data_array)
+        data_array = data_array + noise
+
+        print("data array ", data_array)
+
+    elif type == "gaussian":
+        pass
+
+
+    return data_array
+
+
+
+def add_noise_to_measurements(measurements, level=0.1):
     noisy_measurements = np.zeros(measurements.shape)
     for i in range(measurements.shape[1]):
-        for idx, mes_val in enumerate(measurements[:, i]):
-            noise = np.random.uniform(-level* mes_val, level*mes_val)
-            noisy_measurements[idx, i] = measurements[idx, i] + noise
+        noisy_measurements[:, i] = add_noise(measurements[:, i], noise_level=level, type="uniform")
+        # for idx, mes_val in enumerate(measurements[:, i]):
+        #     noise = np.random.uniform(-level* mes_val, level*mes_val)
+        #     noisy_measurements[idx, i] = measurements[idx, i] + noise
     return noisy_measurements
 
 
@@ -188,6 +258,8 @@ def set_nested_attr(obj, attr, value):
 ### Kalman filter ###
 #####################
 def state_transition_function(state_data, dt):
+    #flux_bcpressure_per_time = [-2e-2] * 24 + [0] * 16 + [-2e-2] * 32
+    et_per_time = 0
     #print("state function call")
     #print("pressure data ", pressure_data)
     space_indices_train = get_space_indices(type="train")
@@ -195,11 +267,13 @@ def state_transition_function(state_data, dt):
 
     len_additional_data = get_len_saturation_data() + len(model_params)  # saturation data + model params
 
-    print("len state pressure saturation shape ", state_data.shape)
+    print("state data shape ", state_data)
     pressure_data = state_data[0:-len_additional_data]  # Extract saturation from state vector
     print("pressure data shape ", pressure_data.shape)
 
-    model_params_data = state_data[-len(model_params):]
+    model_params_data = []
+    if len(model_params) > 0:
+        model_params_data = state_data[-len(model_params):]
 
     print("model_params_data ", model_params_data)
     
@@ -209,15 +283,32 @@ def state_transition_function(state_data, dt):
     model.setup_config()
     model.set_init_pressure(init_p=pressure_data)
     model._run.TimingInfo.StopTime = 1
+    #model._run.Patch.top.BCPressure.alltime.Value = flux_bcpressure_per_time[0] + et_per_time
 
-    for params, value in zip(model_params, model_params_data):
-        set_nested_attr(model._run, params, value)
+    et_per_time = ET0(n=14, T=20, u2=10, Tmax=27, Tmin=12, RHmax=0.55, RHmin=0.35, month=6) / 1000 / 24
+
+
+    if len(model_params) > 0:
+        for params, value in zip(model_params, model_params_data):
+            print("params: {}, value: {}".format(params, value))
+
+            if params == "Patch.top.BCPressure.alltime.Value":
+                value += et_per_time
+            set_nested_attr(model._run, params, value)
+
+            if params == "Geom.domain.Saturation.Alpha":
+                set_nested_attr(model._run, "Geom.domain.RelPerm.Alpha", value)
+
+            if params == "Geom.domain.Saturation.N":
+                set_nested_attr(model._run, "Geom.domain.RelPerm.N", value)
+
+    #model._run.Patch.top.BCPressure.alltime.Value = -2e-2
+
 
     # value = get_nested_attr(model._run, attributes)
     # print("value ", value)
     # exit()
     #
-
 
     ## Aditional attributes
     # model._run.Geom.domain.Perm.Value =
@@ -232,7 +323,6 @@ def state_transition_function(state_data, dt):
     # model._run.Geom.domain.Saturation.SSat = 0.47
     #
     # model._run.Patch.top.BCPressure.alltime.Value =
-
 
     model.run()
 
@@ -273,7 +363,9 @@ def state_transition_function(state_data, dt):
     next_state_init = np.array(next_state_init)
 
     #next_state_init = np.array([np.squeeze(data.pressure), np.squeeze(saturation_data_loc)]).flatten()
+    print("next state init ",  next_state_init)
     print("next state inint shape ", next_state_init.shape)
+
     return next_state_init
 
 
@@ -290,7 +382,8 @@ def get_len_saturation_data():
 
 
 def measurement_function(pressure_data, space_indices_type=None):
-    print("type(pressure_data) ", pressure_data)
+    print("measurement_function(pressure_data) ", pressure_data)
+    print("measurement_function(pressure_data).shape ", pressure_data.shape)
 
     len_additional_data = get_len_saturation_data() + len(model_params)
     if len(model_params) > 0:
@@ -398,7 +491,8 @@ def set_kalman_filter(data, measurement_noise_covariance):
     dim_z = len(mes_locations_to_train)  # Number of measurement inputs
     #initial_covariance = np.cov(noisy_measurements, rowvar=False)
 
-    initial_state_covariance = np.eye(num_locations) * 1e-1
+    initial_state_covariance = np.eye(num_locations) * 1e1
+    #initial_state_covariance[-1] = 1e-5
     #initial_covariance[:-len(model_params), :-len(model_params)] = 0 # 1e-5
     #sigma_points = JulierSigmaPoints(n=n, kappa=1)
     sigma_points = MerweScaledSigmaPoints(n=num_locations, alpha=1e-2, beta=2.0, kappa=1, sqrt_method=sqrt_func)
@@ -406,7 +500,7 @@ def set_kalman_filter(data, measurement_noise_covariance):
     time_step = 1 # one hour time step
     ukf = UnscentedKalmanFilter(dim_x=num_locations, dim_z=dim_z, dt=time_step,
                                 fx=state_transition_function, hx=measurement_function, points=sigma_points)
-    ukf.Q = np.ones(num_locations) * 5e-8
+    ukf.Q = np.ones(num_locations) * 5e-8 # 5e-8
     #ukf.Q[:-len(model_params)] = 1e-5
     #ukf.Q[-2:] = 0
     print("ukf.Q.shape ", ukf.Q.shape)
@@ -423,20 +517,39 @@ def set_kalman_filter(data, measurement_noise_covariance):
     space_indices_test = get_space_indices(type="test")
 
     #initial_state_data = np.array([np.squeeze(data.pressure), np.squeeze(data.saturation[space_indices])]).flatten()#np.squeeze(data.pressure)
-    initial_state_data = list(np.squeeze(data.pressure))
+    #initial_state_data = list(np.squeeze(data.pressure))
+
+    initial_state_data = list(add_noise(np.squeeze(data.pressure), noise_level=0.1, type="uniform"))
+
     initial_state_data.extend(list(np.squeeze(data.saturation[space_indices_train])))
 
     if len(space_indices_test) > 0:
         initial_state_data.extend(list(np.squeeze(data.saturation[space_indices_test])))
 
-    for value in model_params.values():
-        std_val = value * 0.1
+    for i, (param_name, value) in enumerate(model_params.items()):
+        std_val = model_params_std[param_name]
+        orig_value_sign = np.sign(value)
+        print("value sign ", orig_value_sign)
+
+        #std_val = np.abs(value) * 0.1
         value_noise = np.random.normal(0, std_val)
         print("value: {}, noise: {}, value + noise: {}".format(value, value_noise, value + value_noise))
 
+        print("value noise ", value_noise)
+
         value = value + value_noise
 
+        if np.sign(value) != orig_value_sign:
+            value *= -1
+
         initial_state_data.append(value)
+        initial_state_covariance[-len(model_params) + i] = std_val ** 2
+        #@TODO: set ukf.Q in the same matter
+
+    print("initial state data ", initial_state_data)
+    print("initial state covariance ", initial_state_covariance)
+
+
 
 
     # print("model._run.Geom.domain.RelPerm.Alpha ", type(model._run.Geom.domain.RelPerm.Alpha))
@@ -462,9 +575,15 @@ def set_kalman_filter(data, measurement_noise_covariance):
     return ukf
 
 
+def set_model_initial_state():
+    #@TODO set model initital state including parameters and initial pressure that should be different from model instance to model instance
+    pass
+
+
 def run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test):
     pred_loc_measurements = []
     test_pred_loc_measurements = []
+    pred_model_params = []
     # Assuming you have a measurement at each time step
     print("noisy_meaesurements ", noisy_measurements)
     for measurement in noisy_measurements:
@@ -473,6 +592,11 @@ def run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indice
         ukf.update(measurement)
         print("sum ukf.P ", np.sum(ukf.P))
         print("Estimated State:", ukf.x)
+
+        if len(model_params) > 0:
+            model_params_data = ukf.x[-len(model_params):]
+            pred_model_params.append(model_params_data)
+
         est_loc_measurements = measurement_function(ukf.x, space_indices_type="train")
         print("est loc measurements ", est_loc_measurements)
 
@@ -484,10 +608,28 @@ def run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indice
     pred_loc_measurements = np.array(pred_loc_measurements)
     test_pred_loc_measurements = np.array(test_pred_loc_measurements)
 
-    return pred_loc_measurements, test_pred_loc_measurements
+    return pred_loc_measurements, test_pred_loc_measurements, pred_model_params
+
+def plot_model_params(pred_model_params, times):
+
+    print("times.shape ", times.shape)
+    print("pred_model_params[:, ]shape ", pred_model_params[:, ].shape)
 
 
-def plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test, measurements_data_name="pressure"):
+    for idx, (param_name, param_init_value) in enumerate(model_params.items()):
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        print("pred_model_params[:, {}]shape ".format(idx), pred_model_params[:, idx].shape)
+        axes.hlines(y=param_init_value, xmin=0, xmax=pred_model_params.shape[0], linewidth=2, color='r')
+        axes.scatter(times, pred_model_params[:, idx], marker="o", label="predictions")
+        #axes.set_xlabel("param_name")
+        axes.set_ylabel(param_name)
+        fig.legend()
+        fig.savefig("model_param_{}.pdf".format(param_name))
+        plt.show()
+
+
+
+def plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test,  pred_model_params, measurements_data_name="pressure",):
     print("state_loc_measurements ", pred_loc_measurements)
     print("noisy_measurements ", noisy_measurements)
 
@@ -501,6 +643,16 @@ def plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements
     # plt.scatter(times, noisy_measurements[:, 0], marker='x',  label="noisy measurements")
     # plt.legend()
     # plt.show()
+
+    #######
+    # Plot model params data
+    ######
+    print("pred model params ", pred_model_params)
+    print("pred_model_params shape ", np.array(pred_model_params).shape)
+
+
+    if len(pred_model_params) > 0:
+        plot_model_params(np.array(pred_model_params), times)
 
     fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
     axes.scatter(times, pred_loc_measurements[:, 0], marker="o", label="predictions")
@@ -549,6 +701,10 @@ def plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements
         # plt.title("Test locations, pos: {}".format(pos))
         # plt.show()
 
+
+
+
+
     print("MSE predictions vs measurements loc 0 ", np.mean((measurements[:, 0] - pred_loc_measurements[:, 0])**2))
     print("MSE noisy measurements vs measurements loc 0", np.mean((measurements[:, 0] - noisy_measurements[:, 0])**2))
 
@@ -569,6 +725,7 @@ def plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements
     print("TEST MSE noisy measurements vs measurements loc 1", np.mean((measurements_to_test[:, 1] - noisy_measurements_to_test[:, 1])**2))
 
 
+
 if __name__ == "__main__":
     import cProfile
     import pstats
@@ -585,7 +742,7 @@ if __name__ == "__main__":
     #############################
     ### Generate measurements ###
     #############################
-    model, data, measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test = generating_meassurements(measurements_data_name)
+    model, data, measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, state_data_iters = generate_measurements(measurements_data_name)
     residuals = noisy_measurements - measurements
     measurement_noise_covariance = np.cov(residuals, rowvar=False)
     print("measurement noise covariance ", measurement_noise_covariance)
@@ -608,13 +765,13 @@ if __name__ == "__main__":
     ### Kalman filter run ###
     ### For each measurement (time step) ukf.update() and ukf.predict() are called
     ########################################
-    pred_loc_measurements, test_pred_loc_measurements = run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test)
+    pred_loc_measurements, test_pred_loc_measurements, pred_model_params = run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test)
 
 
     ##############################
     ### Results postprocessing ###
     ##############################
-    plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test, measurements_data_name)
+    plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test, pred_model_params, measurements_data_name)
 
     pr.disable()
     ps = pstats.Stats(pr).sort_stats('cumtime')
