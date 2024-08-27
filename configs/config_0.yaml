@@ -1,0 +1,41 @@
+seed: 12345
+model_config:
+  params:
+    names: 
+      - "Geom.domain.RelPerm.Alpha"
+      - "Geom.domain.Saturation.Alpha"
+      - "Geom.domain.RelPerm.N"
+      - "Geom.domain.Saturation.N"
+      - "Geom.domain.Saturation.SRes"
+      - "Geom.domain.Saturation.SSat"
+      - "Patch.top.BCPressure.alltime.Value"
+    values: 
+      - 0.58
+      - 0.58
+      - 3.7
+      - 3.7
+      - 0.06
+      - 0.47
+      - -0.02
+    std: 
+      - 0.001
+      - 0.0001
+      - 0.03
+      - 0.003
+      - 0.0001
+      - 0.0004
+      - 0.0001
+      
+kalman_config:
+  measurements_data_name: saturation  # Possible values: "saturation" or "pressure"
+  mes_locations_train: 
+    - 0.5
+    - 1.5
+  mes_locations_test: 
+    - 1
+    - 2
+  measurements_noise_level: 0.1
+  noise_distr_type: gaussian
+  pressure_saturation_data_noise_level: 0.1
+  pressure_saturation_data_std: 3.2
+
