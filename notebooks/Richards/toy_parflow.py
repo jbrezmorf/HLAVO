@@ -280,6 +280,23 @@ class ToyProblem:
         self._run.Geom.domain.ICPressure.FileName = filename
 
 
+    def set_porosity(self, z_values, porosity_values):
+        # example of setting porosity by piecewise linear interpolation of given values
+        nz = self._run.ComputationalGrid.NZ
+        dz = self._run.ComputationalGrid.DZ
+        zz = np.linspace(0,-(nz-1)*dz,nz)
+
+        por = np.zeros((nz,1,1))
+        por[:,0,0] = np.interp(zz, z_values, porosity_values)
+
+        filename = "toy_richards.porosity.pfb"
+        filepath = self._workdir / pathlib.Path(filename)
+        write_pfb(str(filepath), por)
+
+        self._run.Geom.domain.Porosity.Type = "PFBFile"
+        self._run.Geom.domain.Porosity.FileName = filename
+
+
     def run(self):
         self._run.write(file_format='yaml')
         self._run.run(working_directory=self._workdir)
@@ -296,6 +313,7 @@ class ToyProblem:
 
         # Get the DataAccessor object corresponding to the Run object
         data = self._run.data_accessor
+        data.time = 0
 
         ntimes = len(data.times)
         nz = data.pressure.shape[0]
@@ -307,6 +325,7 @@ class ToyProblem:
             pressure[data.time,:] = data.pressure.reshape(nz)
             data.time += 1
 
+        plt.clf()
         plt.imshow(np.flip(pressure), aspect='auto')
         nticks = int(ntimes/10)
         plt.yticks( np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]) )
@@ -321,8 +340,42 @@ class ToyProblem:
         settings.set_working_directory(cwd)
 
 
+    def save_porosity(self, image_file):
+        cwd = settings.get_working_directory()
+        settings.set_working_directory(self._workdir)
+
+        # Get the DataAccessor object corresponding to the Run object
+        data = self._run.data_accessor
+        data.time = 0
+
+        ntimes = len(data.times)
+        nz = data.computed_porosity.shape[0]
+        porosity = np.zeros((ntimes, nz))
+
+        # Iterate through the timesteps of the DataAccessor object
+        # i goes from 0 to n_timesteps - 1
+        for i in data.times:
+            porosity[data.time,:] = data.computed_porosity.reshape(nz)
+            data.time += 1
+
+        plt.clf()
+        plt.imshow(np.flip(porosity), aspect='auto')
+        nticks = int(ntimes/10)
+        plt.yticks( np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]) )
+        nzticks = int(nz/10)
+        plt.xticks( np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
+        plt.colorbar()
+        plt.title("porosity")
+        plt.xlabel("depth [m]")
+        plt.ylabel("time [h]")
+        plt.savefig(image_file)
+
+        settings.set_working_directory(cwd)
+
+
 toy = ToyProblem(workdir="output-toy")
 toy.setup_config()
 toy.set_init_pressure()
+toy.set_porosity([-10,-5,0], [0.1, 1, 0.5])
 toy.run()
 toy.save_pressure("pressure.png")
