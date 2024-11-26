@@ -72,7 +72,6 @@ def sqrt_func(x):
     return result
 
 
-
 def get_nested_attr(obj, attr):
     """
     Access nested attributes of an object using a dot-separated string.
@@ -89,28 +88,50 @@ def set_nested_attr(obj, attr, value):
 
 
 def add_noise(data_array, noise_level=0.1, std=None, distr_type="uniform", seed=12345):
-    if distr_type == "uniform":
-        noise = np.random.uniform(-noise_level * data_array, noise_level * data_array)
-        data_array = data_array + noise
+    if len(data_array) > 0:
 
-    elif distr_type == "gaussian":
-        orig_value_sign = np.sign(data_array)
+        if distr_type == "uniform":
+            print("uniform ")
+            print("noise level ", noise_level)
+            print("input data array ", data_array)
 
-        print("noise level ", noise_level)
-        print("type noise level ", type(noise_level))
-        print("data array ", data_array)
+            lower_bound = -np.abs(noise_level * data_array)
+            upper_bound = np.abs(noise_level * data_array)
 
-        if std is None:
-            std = np.abs(data_array * noise_level)
+            #print("orig lower bound: {}, upper bound: {}".format(lower_bound, upper_bound))
 
-        value_noise = np.random.normal(0, std)
-        print("value: {}, noise: {}, value + noise: {}".format(data_array, value_noise, data_array + value_noise))
+            # if std is not None:
+            #     noise_level = std
+            #     # std = np.array(std)
+            #     # range = std * np.sqrt(12)
+            #     # lower_bound = - range/2
+            #     # upper_bound = range / 2
+            # lower_bound = -np.abs(noise_level * data_array)
+            # upper_bound = np.abs(noise_level * data_array)
 
-        data_array = data_array + value_noise
+            #print("lower bound: {}, upper bound: {}".format(lower_bound, upper_bound))
 
-        different_signs_indices = np.where(np.sign(data_array) != orig_value_sign)[0]
-        for idx in different_signs_indices:
-            data_array[idx] *= -1
+            noise = np.random.uniform(lower_bound, upper_bound)
+            data_array = data_array + noise
+
+        elif distr_type == "gaussian":
+            orig_value_sign = np.sign(data_array)
+
+            print("noise level ", noise_level)
+            print("type noise level ", type(noise_level))
+            print("data array ", data_array)
+
+            if std is None:
+                std = np.abs(data_array * noise_level)
+
+            value_noise = np.random.normal(0, std)
+            print("value: {}, noise: {}, value + noise: {}".format(data_array, value_noise, data_array + value_noise))
+
+            data_array = data_array + value_noise
+
+            different_signs_indices = np.where(np.sign(data_array) != orig_value_sign)[0]
+            for idx in different_signs_indices:
+                data_array[idx] *= -1
 
     print("data array ", data_array)
 

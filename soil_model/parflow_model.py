@@ -4,6 +4,7 @@
 from parflow import Run
 from parflow.tools import settings
 from parflow.tools.io import write_pfb, read_pfb
+from soil_model import evapotranspiration_fce
 import numpy as np
 import os, pathlib
 from matplotlib import pyplot as plt
@@ -20,7 +21,7 @@ class ToyProblem:
             self._workdir = pathlib.Path.cwd()
 
 
-    def setup_config(self):
+    def setup_config(self, static_params_dict={}):
         #-----------------------------------------------------------------------------
         # File input version number
         #-----------------------------------------------------------------------------
@@ -36,17 +37,33 @@ class ToyProblem:
         #-----------------------------------------------------------------------------
         # Computational Grid
         #-----------------------------------------------------------------------------
-        self._run.ComputationalGrid.Lower.X = 0.0
-        self._run.ComputationalGrid.Lower.Y = 0.0
-        self._run.ComputationalGrid.Lower.Z = -10.0
+        # self._run.ComputationalGrid.Lower.X = 0.0
+        # self._run.ComputationalGrid.Lower.Y = 0.0
+        # self._run.ComputationalGrid.Lower.Z = -10.0
+        #
+        # self._run.ComputationalGrid.DX = 1.
+        # self._run.ComputationalGrid.DY = 1.
+        # self._run.ComputationalGrid.DZ = 0.5
+        #
+        # self._run.ComputationalGrid.NX = 1
+        # self._run.ComputationalGrid.NY = 1
+        # self._run.ComputationalGrid.NZ = 20
 
-        self._run.ComputationalGrid.DX = 1.
-        self._run.ComputationalGrid.DY = 1.
-        self._run.ComputationalGrid.DZ = 0.5
+        # Set the physical size of the domain in meters
+        ##self._run.ComputationalGrid.LX = 0.2  # Length of domain in x-direction (m)
+        ##self._run.ComputationalGrid.LY = 0.2  # Length of domain in y-direction (m)
+        ##self._run.ComputationalGrid.LZ = 1.2  # Length of domain in z-direction (m)
+        self._run.ComputationalGrid.Lower.X = static_params_dict["ComputationalGrid.Lower.X"] if "ComputationalGrid.Lower.X" in static_params_dict else 0.0
+        self._run.ComputationalGrid.Lower.Y = static_params_dict["ComputationalGrid.Lower.Y"] if "ComputationalGrid.Lower.Y" in static_params_dict else 0.0
+        self._run.ComputationalGrid.Lower.Z = static_params_dict["ComputationalGrid.Lower.Z"] if "ComputationalGrid.Lower.Z" in static_params_dict else -1.2
 
-        self._run.ComputationalGrid.NX = 1
-        self._run.ComputationalGrid.NY = 1
-        self._run.ComputationalGrid.NZ = 20
+        self._run.ComputationalGrid.DX = static_params_dict["ComputationalGrid.DX"] if "ComputationalGrid.DX" in static_params_dict else 0.2
+        self._run.ComputationalGrid.DY = static_params_dict["ComputationalGrid.DY"] if "ComputationalGrid.DY" in static_params_dict else 0.2
+        self._run.ComputationalGrid.DZ = static_params_dict["ComputationalGrid.DZ"] if "ComputationalGrid.DZ" in static_params_dict else 0.05
+
+        self._run.ComputationalGrid.NX = static_params_dict["ComputationalGrid.NX"] if "ComputationalGrid.NX" in static_params_dict else 1 # Number of grid cells in x-direction
+        self._run.ComputationalGrid.NY = static_params_dict["ComputationalGrid.NY"] if "ComputationalGrid.NY" in static_params_dict else 1 # Number of grid cells in y-direction
+        self._run.ComputationalGrid.NZ = static_params_dict["ComputationalGrid.NZ"] if "ComputationalGrid.NZ" in static_params_dict else 24 # Number of grid cells in z-direction
 
         #-----------------------------------------------------------------------------
         # The Names of the GeomInputs
@@ -61,13 +78,21 @@ class ToyProblem:
         #-----------------------------------------------------------------------------
         # Domain Geometry
         #-----------------------------------------------------------------------------
-        self._run.Geom.domain.Lower.X = 0.0
-        self._run.Geom.domain.Lower.Y = 0.0
-        self._run.Geom.domain.Lower.Z = -10.0
+        # self._run.Geom.domain.Lower.X = 0.0
+        # self._run.Geom.domain.Lower.Y = 0.0
+        # self._run.Geom.domain.Lower.Z = -10.0
+        #
+        # self._run.Geom.domain.Upper.X = 1.0
+        # self._run.Geom.domain.Upper.Y = 1.0
+        # self._run.Geom.domain.Upper.Z = 0.0
 
-        self._run.Geom.domain.Upper.X = 1.0
-        self._run.Geom.domain.Upper.Y = 1.0
-        self._run.Geom.domain.Upper.Z = 0.0
+        self._run.Geom.domain.Lower.X = static_params_dict["Geom.domain.Lower.X"] if "Geom.domain.Lower.X" in static_params_dict else 0.0
+        self._run.Geom.domain.Lower.Y = static_params_dict["Geom.domain.Lower.Y"] if "Geom.domain.Lower.Y" in static_params_dict else 0.0
+        self._run.Geom.domain.Lower.Z = static_params_dict["Geom.domain.Lower.Z"] if "Geom.domain.Lower.Z" in static_params_dict else -1.2
+
+        self._run.Geom.domain.Upper.X = static_params_dict["Geom.domain.Upper.X"] if "Geom.domain.Upper.X" in static_params_dict else .25
+        self._run.Geom.domain.Upper.Y = static_params_dict["Geom.domain.Upper.X"] if "Geom.domain.Upper.X" in static_params_dict else .25
+        self._run.Geom.domain.Upper.Z = static_params_dict["Geom.domain.Upper.X"] if "Geom.domain.Upper.X" in static_params_dict else 0.0
 
         self._run.Geom.domain.Patches = "left right front back bottom top"
 
@@ -77,7 +102,7 @@ class ToyProblem:
         self._run.Geom.Perm.Names = "domain"
 
         self._run.Geom.domain.Perm.Type = "Constant"
-        self._run.Geom.domain.Perm.Value = 30.8 / 100 / 24 #30.8 / 100 / 24 # 1.2833e-2 [cm/d] -> [m/s]
+        self._run.Geom.domain.Perm.Value = 30.8 / 100 / 24 #30.8 / 100 / 24 # 1.2833e-2 [cm/d] -> [m/h]
         self._run.Perm.TensorType = "TensorByGeom"
         self._run.Geom.Perm.TensorByGeom.Names = "domain"
         self._run.Geom.domain.Perm.TensorValX = 1.0
@@ -115,7 +140,7 @@ class ToyProblem:
         #-----------------------------------------------------------------------------
         # Setup timing info
         #-----------------------------------------------------------------------------
-        self._run.TimingInfo.BaseUnit = 1.0e-4
+        self._run.TimingInfo.BaseUnit = 1 #1.0e-4
         self._run.TimingInfo.StartCount = 0
         self._run.TimingInfo.StartTime = 0.0
         self._run.TimingInfo.StopTime = 60 #48.0  # [h]
@@ -149,15 +174,16 @@ class ToyProblem:
         self._run.Phase.RelPerm.Type = "VanGenuchten"
         self._run.Phase.RelPerm.GeomNames = "domain"
         self._run.Geom.domain.RelPerm.Alpha = 0.58
-        self._run.Geom.domain.RelPerm.N = 2.4
+        self._run.Geom.domain.RelPerm.N = 3.7
 
         #---------------------------------------------------------
         # Saturation
         #---------------------------------------------------------
         self._run.Phase.Saturation.Type = "VanGenuchten"
         self._run.Phase.Saturation.GeomNames = "domain"
-        self._run.Geom.domain.Saturation.Alpha = 0.58
-        self._run.Geom.domain.Saturation.N = 3.7
+        #print("self._run.Geom.domain.RelPerm.Alpha ", self._run.Geom.domain.RelPerm.Alpha)
+        self._run.Geom.domain.Saturation.Alpha = 0.58  #self._run.Geom.domain.RelPerm.Alpha  # 0.58
+        self._run.Geom.domain.Saturation.N = 3.7  #self._run.Geom.domain.RelPerm.N  # 3.7
         self._run.Geom.domain.Saturation.SRes = 0.06
         self._run.Geom.domain.Saturation.SSat = 0.47
 
@@ -174,7 +200,7 @@ class ToyProblem:
 
         self._run.Patch.top.BCPressure.Type = "FluxConst"
         self._run.Patch.top.BCPressure.Cycle = "constant"
-        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-2e-2 #-2e-3
+        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-1.3889 * 10**-6  # 5 mm/h #-2e-2 #-2e-2 #-2e-3 # set in [m/s]
 
         #---------------------------------------------------------
         # Initial conditions: water pressure
@@ -219,9 +245,6 @@ class ToyProblem:
 
         #self._run.Solver.Pressure.FileName = "pressure.out"
         #self._run.Solver.Saturation.FileName = "saturation.out"
-
-
-
         # === Other required, but unused parameters ===
 
         #---------------------------------------------------------
@@ -266,7 +289,6 @@ class ToyProblem:
 
         # === End Other required and unused parameters ===
 
-
     def set_init_pressure(self, init_p=None):
         # example of setting custom initial pressure
         nz = self._run.ComputationalGrid.NZ
@@ -277,16 +299,31 @@ class ToyProblem:
             init_p = np.zeros((nz,1,1))
             init_p[:, 0, 0] = zz-2
 
+        # print("init_p.shape ", init_p.shape)
+        #
+
         filename = "toy_richards.init_pressure.pfb"
         filepath = self._workdir / pathlib.Path(filename)
-
-
-        print("filepath ", filepath)
         write_pfb(str(filepath), init_p)
 
         self._run.ICPressure.Type = "PFBFile"
         self._run.Geom.domain.ICPressure.FileName = filename
 
+    def set_porosity(self, z_values, porosity_values):
+        # example of setting porosity by piecewise linear interpolation of given values
+        nz = self._run.ComputationalGrid.NZ
+        dz = self._run.ComputationalGrid.DZ
+        zz = np.linspace(0, -(nz - 1) * dz, nz)
+
+        por = np.zeros((nz, 1, 1))
+        por[:, 0, 0] = np.interp(zz, z_values, porosity_values)
+
+        filename = "toy_richards.porosity.pfb"
+        filepath = self._workdir / pathlib.Path(filename)
+        write_pfb(str(filepath), por)
+
+        self._run.Geom.domain.Porosity.Type = "PFBFile"
+        self._run.Geom.domain.Porosity.FileName = filename
 
     def run(self):
         self._run.write(file_format='yaml')
@@ -296,12 +333,45 @@ class ToyProblem:
         ## Create a Run object from a .yaml file
         self._run = Run.from_definition(yaml_file)
 
+    def save_porosity(self, image_file):
+        cwd = settings.get_working_directory()
+        settings.set_working_directory(self._workdir)
+
+        # Get the DataAccessor object corresponding to the Run object
+        data = self._run.data_accessor
+        data.time = 0
+
+        ntimes = len(data.times)
+        nz = data.computed_porosity.shape[0]
+        porosity = np.zeros((ntimes, nz))
+
+        # Iterate through the timesteps of the DataAccessor object
+        # i goes from 0 to n_timesteps - 1
+        for i in data.times:
+            porosity[data.time, :] = data.computed_porosity.reshape(nz)
+            data.time += 1
+
+        plt.clf()
+        plt.imshow(np.flip(porosity), aspect='auto')
+        nticks = int(ntimes / 10)
+        plt.yticks(np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]))
+        nzticks = int(nz / 10)
+        plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks])
+        plt.colorbar()
+        plt.title("porosity")
+        plt.xlabel("depth [m]")
+        plt.ylabel("time [h]")
+        plt.savefig(image_file)
+
+        settings.set_working_directory(cwd)
+
     def save_pressure(self, image_file):
         cwd = settings.get_working_directory()
         settings.set_working_directory(self._workdir)
 
         # Get the DataAccessor object corresponding to the Run object
         data = self._run.data_accessor
+        data.time = 0
 
         ntimes = len(data.times)
         nz = data.pressure.shape[0]
@@ -321,6 +391,7 @@ class ToyProblem:
         flipped_pressure = np.flip(pressure)
         #print("flipped_pressure[:, 2] ", flipped_pressure[:, 2])
 
+        plt.clf()
         plt.imshow(np.flip(pressure), aspect='auto')
         nticks = int(ntimes/10)
         #print("n ticks ", nticks)
@@ -341,5 +412,6 @@ class ToyProblem:
 toy = ToyProblem(workdir="output-toy")
 toy.setup_config()
 toy.set_init_pressure()
+toy.set_porosity([-10,-5,0], [0.1, 1, 0.5])
 toy.run()
 toy.save_pressure("pressure.png")
