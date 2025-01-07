@@ -265,10 +265,14 @@ class ToyProblem:
 
     def set_init_pressure(self):
         # example of setting custom initial pressure
+
+        # create vector of z-coordinates for data vector in ascending order
         nz = self._run.ComputationalGrid.NZ
         dz = self._run.ComputationalGrid.DZ
-        zz = np.linspace(0,-(nz-1)*dz,nz)
+        z0 = self._run.ComputationalGrid.Lower.Z
+        zz = np.linspace(z0,z0+(nz-1)*dz,nz)
 
+        # define initial pressure data vector
         init_p = np.zeros((nz,1,1))
         init_p[:,0,0] = zz-2
 
@@ -282,10 +286,14 @@ class ToyProblem:
 
     def set_porosity(self, z_values, porosity_values):
         # example of setting porosity by piecewise linear interpolation of given values
+
+        # create vector of z-coordinates for data vector in ascending order
         nz = self._run.ComputationalGrid.NZ
         dz = self._run.ComputationalGrid.DZ
-        zz = np.linspace(0,-(nz-1)*dz,nz)
+        z0 = self._run.ComputationalGrid.Lower.Z
+        zz = np.linspace(z0,z0+(nz-1)*dz,nz)
 
+        # interpolate porosity values
         por = np.zeros((nz,1,1))
         por[:,0,0] = np.interp(zz, z_values, porosity_values)
 
