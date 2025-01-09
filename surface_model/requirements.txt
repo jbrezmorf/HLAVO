@@ -1,0 +1,14 @@
+#PyYAML
+attrs
+numpy
+scipy
+#joblib
+#pandas
+#seaborn
+#scikit-learn
+matplotlib
+plotly
+#ipykernel
+#reportlab
+#weasyprint
+#funpy @ git+https://github.com/GeoMop/funpy@main
