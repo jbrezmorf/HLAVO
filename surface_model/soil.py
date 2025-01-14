@@ -438,7 +438,3 @@ def plotting_test_manager():
 
 if __name__ == "__main__":
     plotting_test_manager()
-
-
-if __name__ == "__main__":
-    plotting_test_manager()
