@@ -178,83 +178,100 @@ class SoilMaterialManager:
         self.mat_ids = mat_ids
 
         # Attributes to extract from VanGenuchtenParams
-        attributes = [
+        self.attributes = [
             "theta_r", "theta_s", "alpha", "n", "K_s", "l", "storativity", "h_sat", "th_sat", "th_diff"
         ]
 
         # Initialize vectors dynamically using a loop
-        for attr in attributes:
+        for attr in self.attributes:
             setattr(
-                self, f"{attr}_vector",
-                np.array([getattr(materials[m_id], attr) for m_id in mat_ids])
+                self, attr,
+                np.array([getattr(materials[m_id], attr) for m_id in mat_ids]).reshape(-1, 1)
             )
 
         # Compute m_vector separately as it depends on n_vector
-        self.m_vector = 1.0 - 1.0 / self.n_vector
+        self.m = 1.0 - 1.0 / self.n
+        self.attributes.append('m')
+
+    def make_vector_params_(self, cols=1):
+        if self.n.shape[1] == cols:
+            return
+        # Initialize vectors dynamically using a loop
+        for attr in self.attributes:
+            a_vec = getattr(self, attr)
+            setattr(
+                self, attr,
+                np.repeat(a_vec[:, 0:1], cols, axis=1)
+            )
+
 
     # ------------------------------------------------------------------
     # 1) Relative saturation: S_e(h)
     # ------------------------------------------------------------------
-    def relative_saturation(self, h: np.ndarray) -> np.ndarray:
+    def relative_saturation(self, h_in: np.ndarray) -> np.ndarray:
         """
         Piecewise:
           - If h[i] >= h_sat[i], we treat S_e=1 (fully saturated).
           - Else standard van Genuchten formula:
                 S_e = [1 + (alpha*abs(h))^n]^(-m).
         """
+        h = np.atleast_2d(h_in)
+        self.make_vector_params_(cols=h.shape[1])
+
         S_e = np.zeros_like(h)
-        sat_mask = h >= self.h_sat_vector
+        sat_mask = h >= self.h_sat
 
         # Saturated region => S_e=1
         S_e[sat_mask] = 1.0
 
         # Unsaturated region => VG formula
         unsat_mask = ~sat_mask
-        alpha_u = self.alpha_vector[unsat_mask]
-        n_u = self.n_vector[unsat_mask]
-        m_u = self.m_vector[unsat_mask]
+        alpha_u = self.alpha[unsat_mask]
+        n_u = self.n[unsat_mask]
+        m_u = self.m[unsat_mask]
         h_u = h[unsat_mask]
         # S_e = (1 + (alpha*|h|)^n)^(-m)
         A = (alpha_u * np.abs(h_u)) ** n_u
         S_e[unsat_mask] = (1.0 + A) ** (-m_u)
 
-        return S_e
+        return S_e.reshape(h_in.shape)
 
     # ------------------------------------------------------------------
     # 2) Volumetric water content: theta(h)
     # ------------------------------------------------------------------
-    def water_content(self, h: np.ndarray) -> np.ndarray:
+    def water_content(self, h_in: np.ndarray) -> np.ndarray:
         """
         Piecewise:
           - If h[i] >= h_sat[i], theta=theta_s  (fully saturated).
           - Else: theta=theta_r + (theta_s - theta_r)*S_e
         """
-        assert len(h) == len(self.h_sat_vector)
+        h = np.atleast_2d(h_in)
+        self.make_vector_params_(cols=h.shape[1])
+
         theta_out = np.zeros_like(h)
-        sat_mask = (h >= self.h_sat_vector)
+        sat_mask = (h >= self.h_sat)
         unsat_mask = ~sat_mask
 
-        theta_out[sat_mask] = self.th_sat_vector[sat_mask] \
-                               + self.storativity_vector[sat_mask] * (h[sat_mask] - self.h_sat_vector[sat_mask])
+        theta_out[sat_mask] = self.th_sat[sat_mask] \
+                               + self.storativity[sat_mask] * (h[sat_mask] - self.h_sat[sat_mask])
 
-        alpha_u = self.alpha_vector[unsat_mask]
-        n_u = self.n_vector[unsat_mask]
-        m_u = self.m_vector[unsat_mask]
-        theta_r_u = self.theta_r_vector[unsat_mask]
-        #theta_s_u = self.theta_s_vector[unsat_mask]
+        alpha_u = self.alpha[unsat_mask]
+        n_u = self.n[unsat_mask]
+        m_u = self.m[unsat_mask]
+        theta_r_u = self.theta_r[unsat_mask]
 
         # Compute S_e for unsat portion:
         h_u = h[unsat_mask]
         A = (alpha_u * np.abs(h_u)) ** n_u
         S_e_u = (1.0 + A) ** (-m_u)
 
-        theta_out[unsat_mask] = theta_r_u + self.th_diff_vector[unsat_mask]*S_e_u
-        return theta_out
+        theta_out[unsat_mask] = theta_r_u + self.th_diff[unsat_mask] * S_e_u
+        return theta_out.reshape(h_in.shape)
 
     # ------------------------------------------------------------------
     # 3) Specific moisture capacity: C(h) = dtheta/dh
     # ------------------------------------------------------------------
-    def capacity(self, h: np.ndarray) -> np.ndarray:
+    def capacity(self, h_in: np.ndarray) -> np.ndarray:
         """
         Piecewise:
           - If h[i] >= h_sat[i], capacity=0 (no change in theta w.r.t h).
@@ -262,60 +279,56 @@ class SoilMaterialManager:
                 dtheta/dh = (theta_s - theta_r)* dSe/dh,
                 dSe/dh = m*n*alpha*(alpha*|h|)^(n-1)*[1+(alpha*|h|)^n]^(-(m+1)).
         """
+        h = np.atleast_2d(h_in)
+        self.make_vector_params_(cols=h.shape[1])
+
         C = np.zeros_like(h)
-        sat_mask = h >= self.h_sat_vector
+        sat_mask = h >= self.h_sat
         unsat_mask = ~sat_mask
 
         # Unsaturated region => compute derivative
-        alpha_u = self.alpha_vector[unsat_mask]
-        n_u = self.n_vector[unsat_mask]
-        m_u = self.m_vector[unsat_mask]
+        alpha_u = self.alpha[unsat_mask]
+        n_u = self.n[unsat_mask]
+        m_u = self.m[unsat_mask]
         h_u = h[unsat_mask]
 
-        x = np.abs(h_u)  # x>0 if h<0, but we just use absolute
+        x = np.abs(h_u)
         ax_n = (alpha_u * x) ** n_u
         factor = m_u * n_u * alpha_u * (alpha_u * x) ** (n_u - 1.0)
-        # Derivative of S_e w.r.t. h (sign is positive if h<0 => dh/dx=-1)
         dSe_dh = factor * (1.0 + ax_n) ** (-(m_u + 1.0))
 
-        # But strictly, for h>0 (but < h_sat => doesn't occur if h_sat>=0),
-        # you'd still use the same formula if we truly want 'unsat' region.
-        # We'll keep it general. If h is slightly positive but < h_sat,
-        # the user implies it's 'unsat' region.
-
-        # (theta_s - theta_r)*dSe_dh
-        C[unsat_mask] = self.th_diff_vector[unsat_mask] * dSe_dh
-        C[sat_mask] = self.storativity_vector[sat_mask]
-        # sat_mask => capacity=0
-        return C
+        C[unsat_mask] = self.th_diff[unsat_mask] * dSe_dh
+        C[sat_mask] = self.storativity[sat_mask]
+        return C.reshape(h_in.shape)
 
     # ------------------------------------------------------------------
     # 4) Hydraulic conductivity: K(h)
     # ------------------------------------------------------------------
-    def hydraulic_conductivity(self, h: np.ndarray) -> np.ndarray:
+    def hydraulic_conductivity(self, h_in: np.ndarray) -> np.ndarray:
         """
         Piecewise:
           - If h[i] >= h_sat[i], K=K_s (fully saturated).
           - Else use Mualem-van Genuchten:
                 K(h) = K_s * S_e^l * [1 - (1 - S_e^(1/m))^m]^2
         """
+        h = np.atleast_2d(h_in)
+        self.make_vector_params_(cols=h.shape[1])
+
         K_out = np.zeros_like(h)
         sat_mask = h >= 0.0
         unsat_mask = ~sat_mask
 
         # Saturated => K=K_s
-        K_out[sat_mask] = self.K_s_vector[sat_mask]
+        K_out[sat_mask] = self.K_s[sat_mask]
 
         # Unsaturated => Mualem-van Genuchten formula
-        l_u = self.l_vector[unsat_mask]
-        K_s_u = self.K_s_vector[unsat_mask]
-        # Need S_e:
-        alpha_u = self.alpha_vector[unsat_mask]
-        n_u = self.n_vector[unsat_mask]
-        m_u = self.m_vector[unsat_mask]
+        l_u = self.l[unsat_mask]
+        K_s_u = self.K_s[unsat_mask]
+        alpha_u = self.alpha[unsat_mask]
+        n_u = self.n[unsat_mask]
+        m_u = self.m[unsat_mask]
         h_u = h[unsat_mask]
 
-        # Relative saturation (S_e):
         A = (alpha_u * np.abs(h_u)) ** n_u
         S_e_u = (1.0 + A) ** (-m_u)
 
@@ -324,12 +337,12 @@ class SoilMaterialManager:
         bracket = 1.0 - (1.0 - Se_1m)**(m_u)
         K_out[unsat_mask] = K_s_u * S_e_pow_l * (bracket**2)
 
-        return K_out
+        return K_out.reshape(h_in.shape)
 
     # ------------------------------------------------------------------
     # 5) Inverse function: from water content -> pressure head
     # ------------------------------------------------------------------
-    def pressure_head_from_theta(self, theta: np.ndarray) -> np.ndarray:
+    def pressure_head_from_theta(self, th_in: np.ndarray) -> np.ndarray:
         """
         Piecewise inversion:
           - If theta >= theta_s => h = h_sat (fully saturated).
@@ -337,23 +350,24 @@ class SoilMaterialManager:
                 h = - 1/alpha * [Se^(-1/m) - 1]^(1/n),
             or large negative if Se <= 0.
         """
-        h_out = np.zeros_like(theta)
+        theta = np.atleast_2d(th_in)
+        self.make_vector_params_(cols=theta.shape[1])
 
+        h_out = np.zeros_like(theta)
         # 1) If theta >= theta_s => saturate => h = h_sat
-        sat_mask = (theta >= self.th_sat_vector)
-        h_out[sat_mask] = (theta[sat_mask] - self.th_sat_vector[sat_mask]) / self.storativity_vector[sat_mask] \
-                          + self.h_sat_vector[sat_mask]
+        sat_mask = (theta >= self.th_sat)
+        h_out[sat_mask] = (theta[sat_mask] - self.th_sat[sat_mask]) / self.storativity[sat_mask] \
+                          + self.h_sat[sat_mask]
 
         # 2) Unsaturated but Se>0 => standard VG
-        #    h = -1/alpha*[Se^(-1/m)-1]^(1/n)
         unsat_mask = ~sat_mask
-        Se_u = (theta[unsat_mask] - self.theta_r_vector[unsat_mask]) / self.th_diff_vector[unsat_mask]
-        a_u  = self.alpha_vector[unsat_mask]
-        n_u  = self.n_vector[unsat_mask]
-        m_u  = self.m_vector[unsat_mask]
-        h_out[unsat_mask] = -1.0/a_u * (Se_u**(-1.0/m_u) - 1.0)**(1.0/n_u)
+        Se_u = (theta[unsat_mask] - self.theta_r[unsat_mask]) / self.th_diff[unsat_mask]
+        a_u  = self.alpha[unsat_mask]
+        n_u  = self.n[unsat_mask]
+        m_u  = self.m[unsat_mask]
+        h_out[unsat_mask] = -1.0 / a_u * (Se_u ** (-1.0 / m_u) - 1.0) ** (1.0 / n_u)
 
-        return h_out
+        return h_out.reshape(th_in.shape)
 
 
 
@@ -388,22 +402,23 @@ def plotting_test_manager():
 
 
     # 3) Build mat_ids so that each block of 300 belongs to one material
-    mat_ids = np.arange(len(n_values), dtype=int)[:, None] * np.ones_like(h_values,dtype=int)[None, :]
+    mat_ids = np.arange(len(n_values), dtype=int) #[:, None] * np.ones_like(h_values,dtype=int)[None, :]
 
     # 4) Create the manager with multiple materials
-    manager = SoilMaterialManager(materials=materials, mat_ids=mat_ids.flatten())
+    manager = SoilMaterialManager(materials=materials, mat_ids=mat_ids)
 
     mat_shape = (len(n_values), len(h_values))
-    H_all = H_all.ravel()
+    #H_all = H_all.ravel()
     # 5) Compute water_content, conductivity, capacity for entire H_all
-    Theta_all = manager.water_content(H_all).reshape(*mat_shape)
-    K_all     = manager.hydraulic_conductivity(H_all).reshape(*mat_shape)
-    C_all     = manager.capacity(H_all).reshape(*mat_shape)
+    Theta_all = manager.water_content(H_all)    #.reshape(*mat_shape)
+    K_all     = manager.hydraulic_conductivity(H_all)   #.reshape(*mat_shape)
+    C_all     = manager.capacity(H_all) #.reshape(*mat_shape)
 
-    diff = manager.pressure_head_from_theta(Theta_all.flatten()) - H_all
-    assert np.allclose(manager.pressure_head_from_theta(Theta_all.flatten()), H_all)
+
+    diff = manager.pressure_head_from_theta(Theta_all) - H_all
+    assert np.allclose(manager.pressure_head_from_theta(Theta_all), H_all)
     eps = 1.0e-6
-    th_1 = manager.water_content(H_all + eps).reshape(*mat_shape)
+    th_1 = manager.water_content(H_all + eps)
     C_approx = (th_1 - Theta_all) / eps
     C_diff = C_all - C_approx
     assert np.allclose(C_all, C_approx)
