@@ -38,7 +38,7 @@ model_config:
       - 0.001
   rain_periods: 
     #- [28, -0.2]    # hours of rain with precipitation
-    - [96, 0]    
+    - [24, 0]    
     #- [24, -0.02]
     #- [4, -0.02] 
   #flux_eps: [0, 0]
@@ -69,13 +69,13 @@ model_config:
 kalman_config:
   measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
   mes_locations_train: 
-    - 0.5
-    - 1.5
+    - 0.25
+    - 1.2
     #- 2.5
     #- 3.5
   mes_locations_test: 
+    - 0.5
     - 1
-    - 2
   measurements_noise_level: 0.1
   noise_distr_type: uniform #gaussian
   model_params_noise_level: 0.1
@@ -83,4 +83,6 @@ kalman_config:
   pressure_saturation_data_std: 3.2
   Q_var: 0.00005
   Q_model_params_var: 0.00000001
+  sigma_points_params: {"alpha": 0.01, "beta": 2, "kappa": 1}
+  plot: True
 

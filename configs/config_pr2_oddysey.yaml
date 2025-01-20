@@ -108,5 +108,6 @@ kalman_config:
   pressure_saturation_data_std: 10
   Q_var: 0.00005
   Q_model_params_var: 0.00000001
+  sigma_points_params: {"alpha": 0.01, "beta": 2, "kappa": 1}
   measurements_dir: "/home/martin/Documents/HLAVO/soil_model/data/24_10_01_full_saturation/"
-  plot: True
+  plot: False

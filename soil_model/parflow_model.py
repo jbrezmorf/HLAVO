@@ -192,15 +192,19 @@ class ToyProblem:
         #-----------------------------------------------------------------------------
         self._run.BCPressure.PatchNames = "bottom top"
 
-        self._run.Patch.bottom.BCPressure.Type = "DirEquilRefPatch"
+        # self._run.Patch.bottom.BCPressure.Type = "DirEquilRefPatch"
+        # self._run.Patch.bottom.BCPressure.Cycle = "constant"
+        # self._run.Patch.bottom.BCPressure.RefGeom = "domain"
+        # self._run.Patch.bottom.BCPressure.RefPatch = "bottom"
+        # self._run.Patch.bottom.BCPressure.alltime.Value = -2.0
+
+        self._run.Patch.bottom.BCPressure.Type = "FluxConst"
         self._run.Patch.bottom.BCPressure.Cycle = "constant"
-        self._run.Patch.bottom.BCPressure.RefGeom = "domain"
-        self._run.Patch.bottom.BCPressure.RefPatch = "bottom"
-        self._run.Patch.bottom.BCPressure.alltime.Value = -2.0
+        self._run.Patch.bottom.BCPressure.alltime.Value = 0
 
         self._run.Patch.top.BCPressure.Type = "FluxConst"
         self._run.Patch.top.BCPressure.Cycle = "constant"
-        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-1.3889 * 10**-6  # 5 mm/h #-2e-2 #-2e-2 #-2e-3 # set in [m/s]
+        self._run.Patch.top.BCPressure.alltime.Value = 0 #-2e-2 #-1.3889 * 10**-6  # 5 mm/h #-2e-2 #-2e-2 #-2e-3 # set in [m/s]
 
         #---------------------------------------------------------
         # Initial conditions: water pressure
@@ -297,7 +301,7 @@ class ToyProblem:
 
         if init_p is None:
             init_p = np.zeros((nz,1,1))
-            init_p[:, 0, 0] = zz-2
+            #init_p[:, 0, 0] = zz-2
 
         # print("init_p.shape ", init_p.shape)
         #
@@ -326,44 +330,87 @@ class ToyProblem:
         self._run.Geom.domain.Porosity.FileName = filename
 
     def run(self):
-        self._run.write(file_format='yaml')
         self._run.run(working_directory=self._workdir)
+        self._run.write(file_format='yaml')
+
 
     def load_yaml(self, yaml_file):
         ## Create a Run object from a .yaml file
         self._run = Run.from_definition(yaml_file)
 
-    def save_porosity(self, image_file):
-        cwd = settings.get_working_directory()
-        settings.set_working_directory(self._workdir)
+    # def save_porosity(self, image_file):
+    #     cwd = settings.get_working_directory()
+    #     settings.set_working_directory(self._workdir)
+    #
+    #     # Get the DataAccessor object corresponding to the Run object
+    #     data = self._run.data_accessor
+    #     data.time = 0
+    #
+    #     ntimes = len(data.times)
+    #     nz = data.computed_porosity.shape[0]
+    #     porosity = np.zeros((ntimes, nz))
+    #
+    #     # Iterate through the timesteps of the DataAccessor object
+    #     # i goes from 0 to n_timesteps - 1
+    #     for i in data.times:
+    #         porosity[data.time, :] = data.computed_porosity.reshape(nz)
+    #         data.time += 1
+    #
+    #     plt.clf()
+    #     plt.imshow(np.flip(porosity), aspect='auto')
+    #     nticks = int(ntimes / 10)
+    #     plt.yticks(np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]))
+    #     nzticks = int(nz / 10)
+    #     plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks])
+    #     plt.colorbar()
+    #     plt.title("porosity")
+    #     plt.xlabel("depth [m]")
+    #     plt.ylabel("time [h]")
+    #     plt.savefig(image_file)
+    #
+    #     settings.set_working_directory(cwd)
 
-        # Get the DataAccessor object corresponding to the Run object
-        data = self._run.data_accessor
-        data.time = 0
+    @staticmethod
+    def plot_pressure_from_state_data(state_data_iter, additional_data_len):
+        state_data_iter = np.array(state_data_iter)
 
-        ntimes = len(data.times)
-        nz = data.computed_porosity.shape[0]
-        porosity = np.zeros((ntimes, nz))
+        print("state data iter ", state_data_iter.shape)
 
-        # Iterate through the timesteps of the DataAccessor object
-        # i goes from 0 to n_timesteps - 1
-        for i in data.times:
-            porosity[data.time, :] = data.computed_porosity.reshape(nz)
-            data.time += 1
+        pressure = state_data_iter[:, :-additional_data_len]
+
+        ntimes = pressure.shape[0]
 
         plt.clf()
-        plt.imshow(np.flip(porosity), aspect='auto')
+        # fig, ax = plt.subplots(1, 1)
+        plt.imshow(pressure, aspect='auto')
         nticks = int(ntimes / 10)
-        plt.yticks(np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]))
+        # print("n ticks ", nticks)
+
+        # from matplotlib import ticker
+        # formatter = ticker.ScalarFormatter(useMathText=True)
+        # formatter.set_scientific(True)
+        # formatter.set_powerlimits((-1, 1))
+
+        nz = pressure.shape[1]
+
+        #plt.yticks(np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]))
         nzticks = int(nz / 10)
-        plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks])
+        # print("np.arange(nz)[1::nzticks] ", np.arange(nz)[1::nzticks])
+        # print("np.cumsum(data.dz) ", np.cumsum(data.dz))
+        # print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
+        # print("nzticks ", nzticks)
+        # plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
+        # plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
+        plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2])
         plt.colorbar()
-        plt.title("porosity")
+        plt.title("pressure")
         plt.xlabel("depth [m]")
         plt.ylabel("time [h]")
-        plt.savefig(image_file)
+        #plt.savefig(image_file)
+        plt.show()
 
-        settings.set_working_directory(cwd)
+        #settings.set_working_directory(cwd)
+
 
     def save_pressure(self, image_file):
         cwd = settings.get_working_directory()
@@ -374,44 +421,69 @@ class ToyProblem:
         data.time = 0
 
         ntimes = len(data.times)
+
+        print("ntimes ", ntimes)
+
         nz = data.pressure.shape[0]
+        print("nz ", nz)
         pressure = np.zeros((ntimes, nz))
+
+        print("data.times ", data.times)
+
 
         # Iterate through the timesteps of the DataAccessor object
         # i goes from 0 to n_timesteps - 1
         for i in data.times:
-            # print("time i ", i)
+            print("time i ", i)
             # print("data.time ", data.time)
             # print("data.pressure[:5] ", data.pressure[:2])
             #pressure[i, :] = data.pressure.reshape(nz)
-            pressure[data.time,:] = data.pressure.reshape(nz)
+            print("pressure ", data.pressure)
+            print("data.time ", data.time)
+            pressure[data.time,:] = np.flip(data.pressure.reshape(nz))
             data.time += 1
 
+        print("pressure ", pressure)
+
         #print("np.flip(pressure) ", np.flip(pressure).shape)
-        flipped_pressure = np.flip(pressure)
+        #flipped_pressure = np.flip(pressure)
         #print("flipped_pressure[:, 2] ", flipped_pressure[:, 2])
 
         plt.clf()
-        plt.imshow(np.flip(pressure), aspect='auto')
+        #fig, ax = plt.subplots(1, 1)
+        plt.imshow(pressure, aspect='auto')
         nticks = int(ntimes/10)
         #print("n ticks ", nticks)
 
+        # from matplotlib import ticker
+        # formatter = ticker.ScalarFormatter(useMathText=True)
+        # formatter.set_scientific(True)
+        # formatter.set_powerlimits((-1, 1))
+
+        print("data.dz ", data.dz)
+
         plt.yticks( np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]) )
         nzticks = int(nz/10)
+        print("np.arange(nz)[1::nzticks] ", np.arange(nz)[1::nzticks])
+        print("np.cumsum(data.dz) ", np.cumsum(data.dz))
+        print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
         #print("nzticks ", nzticks)
-        plt.xticks( np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
+        #plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
+        #plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
+        plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.,  1.1, 1.2])
         plt.colorbar()
         plt.title("pressure")
         plt.xlabel("depth [m]")
         plt.ylabel("time [h]")
         plt.savefig(image_file)
+        plt.show()
 
         settings.set_working_directory(cwd)
 
 
-toy = ToyProblem(workdir="output-toy")
-toy.setup_config()
-toy.set_init_pressure()
-toy.set_porosity([-10,-5,0], [0.1, 1, 0.5])
-toy.run()
-toy.save_pressure("pressure.png")
+# toy = ToyProblem(workdir="output-toy")
+# toy.setup_config()
+# toy.set_init_pressure()
+# toy.set_porosity([-10,-5,0], [0.1, 1, 0.5])
+# toy.run()
+# toy.save_pressure("pressure.png")
