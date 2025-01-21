@@ -8,10 +8,12 @@ from soil_model import evapotranspiration_fce
 import numpy as np
 import os, pathlib
 from matplotlib import pyplot as plt
+from soil_model.abstract_model import AbstractModel
+from soil_model.auxiliary_functions import sqrt_func, set_nested_attr, get_nested_attr, add_noise
 
 
-class ToyProblem:
-    def __init__(self, workdir=None):
+class ToyProblem(AbstractModel):
+    def __init__(self, config, workdir=None):
         # Define a toy problem for PARFLOW simulator
         self._run = Run("toy_richards", __file__)
         if workdir is not None:
@@ -19,6 +21,8 @@ class ToyProblem:
             pathlib.Path.mkdir(self._workdir, exist_ok=True)
         else:
             self._workdir = pathlib.Path.cwd()
+
+        self.setup_config(config["static_params"])
 
 
     def setup_config(self, static_params_dict={}):
@@ -301,7 +305,7 @@ class ToyProblem:
 
         if init_p is None:
             init_p = np.zeros((nz,1,1))
-            #init_p[:, 0, 0] = zz-2
+            init_p[:, 0, 0] = zz-2
 
         # print("init_p.shape ", init_p.shape)
         #
@@ -329,10 +333,35 @@ class ToyProblem:
         self._run.Geom.domain.Porosity.Type = "PFBFile"
         self._run.Geom.domain.Porosity.FileName = filename
 
-    def run(self):
+    def run(self, init_pressure, precipitation_value, model_params, stop_time):
+
+        self.set_dynamic_params(model_params)
+
+        self._run.Patch.top.BCPressure.alltime.Value = precipitation_value
+        self.set_init_pressure(init_pressure)
+
+        self._run.TimingInfo.StopTime = stop_time
         self._run.run(working_directory=self._workdir)
         self._run.write(file_format='yaml')
 
+        settings.set_working_directory(self._workdir)
+
+    def get_data(self, current_time, data_name="pressure"):
+        data = self._run.data_accessor
+        data.time = current_time
+
+        if data_name == "pressure":
+            return data.pressure
+        elif data_name == "saturation":
+            return data.saturation
+        else:
+            raise NotImplemented("This method returns 'pressure' or 'saturation' only")
+
+    def get_times(self):
+        return self._run.data_accessor.times
+
+    def get_space_step(self):
+        return self._run.ComputationalGrid.DZ
 
     def load_yaml(self, yaml_file):
         ## Create a Run object from a .yaml file
@@ -370,47 +399,33 @@ class ToyProblem:
     #
     #     settings.set_working_directory(cwd)
 
-    @staticmethod
-    def plot_pressure_from_state_data(state_data_iter, additional_data_len):
-        state_data_iter = np.array(state_data_iter)
+    def set_dynamic_params(self, model_params):
+        model_params_new_values = []
+        for params, (mean, std) in model_params.items():
+            #print("params: {}, mean: {}, std: {}".format(params, mean, std))
 
-        print("state data iter ", state_data_iter.shape)
+            # if params == "Patch.top.BCPressure.alltime.Value":
+            #     print("precipitation list time step: {} value: {}".format(time_step,
+            #           model_config["precipitation_list"][time_step]))
+            #     if model_config["precipitation_list"][time_step] == 0:
+            #         value = 0
+            #     # elif model_config["precipitation_list"][time_step-1] == 0:
+            #     #     print("model params std ", model_config["params"]["std"])
+            #     #     value = add_noise([model_config["precipitation_list"][time_step]],
+            #     #               distr_type=kalman_config["noise_distr_type"],
+            #     #               std=model_config["params"]["std"][idx])
+            #     value += et_per_time
+            set_nested_attr(self._run, params, mean)
 
-        pressure = state_data_iter[:, :-additional_data_len]
+            if params == "Geom.domain.Saturation.Alpha":
+                set_nested_attr(self._run, "Geom.domain.RelPerm.Alpha", mean)
 
-        ntimes = pressure.shape[0]
+            if params == "Geom.domain.Saturation.N":
+                set_nested_attr(self._run, "Geom.domain.RelPerm.N", mean)
 
-        plt.clf()
-        # fig, ax = plt.subplots(1, 1)
-        plt.imshow(pressure, aspect='auto')
-        nticks = int(ntimes / 10)
-        # print("n ticks ", nticks)
+            model_params_new_values.append(mean)
 
-        # from matplotlib import ticker
-        # formatter = ticker.ScalarFormatter(useMathText=True)
-        # formatter.set_scientific(True)
-        # formatter.set_powerlimits((-1, 1))
-
-        nz = pressure.shape[1]
-
-        #plt.yticks(np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]))
-        nzticks = int(nz / 10)
-        # print("np.arange(nz)[1::nzticks] ", np.arange(nz)[1::nzticks])
-        # print("np.cumsum(data.dz) ", np.cumsum(data.dz))
-        # print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
-        # print("nzticks ", nzticks)
-        # plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
-        # plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
-        plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2])
-        plt.colorbar()
-        plt.title("pressure")
-        plt.xlabel("depth [m]")
-        plt.ylabel("time [h]")
-        #plt.savefig(image_file)
-        plt.show()
-
-        #settings.set_working_directory(cwd)
-
+        return model_params_new_values
 
     def save_pressure(self, image_file):
         cwd = settings.get_working_directory()
@@ -479,6 +494,39 @@ class ToyProblem:
         plt.show()
 
         settings.set_working_directory(cwd)
+
+    def plot_pressure(self, pressure):
+        ntimes = pressure.shape[0]
+
+        plt.clf()
+        # fig, ax = plt.subplots(1, 1)
+        plt.imshow(pressure, aspect='auto')
+        nticks = int(ntimes / 10)
+        # print("n ticks ", nticks)
+
+        # from matplotlib import ticker
+        # formatter = ticker.ScalarFormatter(useMathText=True)
+        # formatter.set_scientific(True)
+        # formatter.set_powerlimits((-1, 1))
+
+        nz = pressure.shape[1]
+
+        # plt.yticks(np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]))
+        nzticks = int(nz / 10)
+        # print("np.arange(nz)[1::nzticks] ", np.arange(nz)[1::nzticks])
+        # print("np.cumsum(data.dz) ", np.cumsum(data.dz))
+        # print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
+        # print("nzticks ", nzticks)
+        # plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
+        # plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
+        plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2])
+        plt.colorbar()
+        plt.title("pressure")
+        plt.xlabel("depth [m]")
+        plt.ylabel("time [h]")
+        # plt.savefig(image_file)
+        plt.show()
+
 
 
 # toy = ToyProblem(workdir="output-toy")

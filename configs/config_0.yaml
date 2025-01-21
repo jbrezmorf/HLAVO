@@ -1,5 +1,6 @@
 seed: 12345
 model_config:
+  model_class: "ToyProblem"
   params:
     names:
       ##- "Geom.domain.RelPerm.Alpha"
