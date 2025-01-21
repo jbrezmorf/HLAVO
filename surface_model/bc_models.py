@@ -50,6 +50,26 @@ def free_drainage_bc():
 
     return bc_function
 
+
+def poly_ramp(x, eps=0.01):
+    """
+    A piecewise cubic C2 function:
+    f(x) = 0.0      for x < -eps
+    f(x) = C2       -eps, 0
+    f(x) = 1.0      for x > 0.0
+    """
+    xx = 2 * x / eps + 1
+    result = np.where(
+        x <= -eps,  # Values below -eps
+        0.0,
+        np.where(
+            x >= 0,  # Values above 0
+            1.0,
+            0.25 * (-xx ** 3 + 3 * xx) + 0.5  # Transition region
+        )
+    )
+    return result
+
 def seepage_bc(q_given, h_crit, transition_width):
     """
     Factory for seepage boundary condition.
@@ -68,9 +88,9 @@ def seepage_bc(q_given, h_crit, transition_width):
         A function that computes inward water flux.
     """
     def bc_function(t, H, K, dz):
-        factor = np.tanh((H - h_crit) / transition_width) * 0.5 + 0.5
-        dirichlet_term = -K * (H - h_crit) / dz
+        factor = poly_ramp(H - h_crit)
+        dirichlet_term = -100 * K * (H - h_crit) / abs(dz)
         prescribed_flux = q_given
-        return factor * dirichlet_term + (1 - factor) * prescribed_flux
-
+        flux = factor * dirichlet_term + (1 - factor) * prescribed_flux
+        return flux
     return bc_function

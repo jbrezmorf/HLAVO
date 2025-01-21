@@ -28,7 +28,7 @@ class RichardsSolverOutput:
     moisture: np.ndarray
     top_flux: np.ndarray
     bottom_flux: np.ndarray
-    nodes_ze: np.ndarray
+    nodes_z: np.ndarray
 
 class RichardsEquationSolver:
     def __init__(self, nodes_z, vg_params: VanGenuchtenParams, bc_funcs):
@@ -76,6 +76,16 @@ class RichardsEquationSolver:
         nodes_z = np.linspace(0, z_bot, n_nodes)
         return RichardsEquationSolver(nodes_z, soil_manager, bc_funcs)
 
+    def plot_iter(self, t, H):
+        t_iter = self._iters.setdafault(t, 0)
+        import matplotlib.pyplot as plt
+        plt.plot(self.nodes_z, H)
+        plt.xlabel(f"t={t}, iter={t_iter}, Z position")
+        plt.ylabel(f"h")
+        self._iters[t] = t_iter + 1
+        plt.show()
+
+
     def compute_rhs(self, t, H):
         """
         Assemble the right-hand side of the 1D Richards equation ODE
@@ -92,7 +102,7 @@ class RichardsEquationSolver:
             Time derivative of pressure head (dH/dt).
         """
         # Number of elements (N = number of intervals)
-        d = np.diff(self.nodes_z)  # element lengths, shape (N,)
+        d = np.abs(np.diff(self.nodes_z))  # element lengths, shape (N,)
         Cvals = self.soil_manager.capacity(H)  # C at each node, shape (N+1,)
 
         M_lump = np.zeros_like(H)
@@ -194,7 +204,7 @@ class RichardsEquationSolver:
     #     # Collect results as (time, H)
     #     return output_times, solution.y
 
-    def richards_solver(self, h_initial, t_span, t_out, method='LSODA'):
+    def richards_solver(self, h_initial, t_span, t_out, method='Radau'): #method='LSODA'):
         """
         Solve Richards' equation using `solve_ivp` and save results at specified output times.
 
@@ -232,21 +242,23 @@ class RichardsEquationSolver:
             rtol=1e-4,
             atol=1e-6
         )
+        if not solution.success:
+            raise Exception(f"Richards ODE solver failed after {len(solution.t)} time steps.\n" + f"Message: {solution.message}")
 
-        H = (solution.y).T  # time points at rows
-        moisture = self.soil_manager.water_content(H.T).T
+        H = (solution.y)  # time points at rows
+        moisture = self.soil_manager.water_content(H).T
 
         d = np.diff(self.nodes_z)
-        Kvals = self.soil_manager.hydraulic_conductivity(H.T).T
-
+        Kvals = self.soil_manager.hydraulic_conductivity(H).T
+        H = H.T
         bc_top_fn, bc_bot_fn = self.bc
         top_flux = bc_top_fn(output_times, H[:, 0], Kvals[:, 0], d[0])
         bottom_flux = bc_bot_fn(output_times, H[:, -1], Kvals[:, -1], d[-1])
 
         return RichardsSolverOutput(
             times=output_times,
-            H=H,
-            moisture=moisture,
+            H=H,                  # (n_times, n_nodes)
+            moisture=moisture,      # (n_times, n_nodes)
             top_flux=top_flux,
             bottom_flux=bottom_flux,
             nodes_z=self.nodes_z

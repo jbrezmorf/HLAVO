@@ -245,7 +245,7 @@ class SoilMaterialManager:
           - If h[i] >= h_sat[i], theta=theta_s  (fully saturated).
           - Else: theta=theta_r + (theta_s - theta_r)*S_e
         """
-        h = np.atleast_2d(h_in)
+        h = h_in.reshape(len(h_in), -1)
         self.make_vector_params_(cols=h.shape[1])
 
         theta_out = np.zeros_like(h)
@@ -279,7 +279,7 @@ class SoilMaterialManager:
                 dtheta/dh = (theta_s - theta_r)* dSe/dh,
                 dSe/dh = m*n*alpha*(alpha*|h|)^(n-1)*[1+(alpha*|h|)^n]^(-(m+1)).
         """
-        h = np.atleast_2d(h_in)
+        h = h_in.reshape(len(h_in), -1)
         self.make_vector_params_(cols=h.shape[1])
 
         C = np.zeros_like(h)
@@ -311,7 +311,7 @@ class SoilMaterialManager:
           - Else use Mualem-van Genuchten:
                 K(h) = K_s * S_e^l * [1 - (1 - S_e^(1/m))^m]^2
         """
-        h = np.atleast_2d(h_in)
+        h = h_in.reshape(len(h_in), -1)
         self.make_vector_params_(cols=h.shape[1])
 
         K_out = np.zeros_like(h)
@@ -350,7 +350,7 @@ class SoilMaterialManager:
                 h = - 1/alpha * [Se^(-1/m) - 1]^(1/n),
             or large negative if Se <= 0.
         """
-        theta = np.atleast_2d(th_in)
+        theta = th_in.reshape(len(th_in), -1)
         self.make_vector_params_(cols=theta.shape[1])
 
         h_out = np.zeros_like(theta)
@@ -369,7 +369,70 @@ class SoilMaterialManager:
 
         return h_out.reshape(th_in.shape)
 
+def plot_soils(soils: List[VanGenuchtenParams], fname=None):
+    n_mat = len(soils)
+    # Array of pressure heads (from -10 up to +1, let's say)
+    h_values = np.linspace(-50, 1, 500)  # length e.g. 300
+    H_all = np.ones(n_mat)[:, None] * h_values[None, :]
 
+    # 2) We want to build a single big array of heads, H_all,
+    #    which concatenates the h_values block for each material.
+    #    For example, if we have 5 materials and len(h_values)=300,
+    #    then len(H_all)=5*300=1500.
+
+
+    # 3) Build mat_ids so that each block of 300 belongs to one material
+    mat_ids = np.arange(n_mat, dtype=int) #[:, None] * np.ones_like(h_values,dtype=int)[None, :]
+
+    # 4) Create the manager with multiple materials
+    manager = SoilMaterialManager(materials=soils, mat_ids=mat_ids)
+
+    mat_shape = (n_mat, len(h_values))
+    #H_all = H_all.ravel()
+    # 5) Compute water_content, conductivity, capacity for entire H_all
+    Theta_all = manager.water_content(H_all)    #.reshape(*mat_shape)
+    K_all     = manager.hydraulic_conductivity(H_all)   #.reshape(*mat_shape)
+    C_all     = manager.capacity(H_all) #.reshape(*mat_shape)
+
+
+    diff = manager.pressure_head_from_theta(Theta_all) - H_all
+    assert np.allclose(manager.pressure_head_from_theta(Theta_all), H_all)
+    eps = 1.0e-6
+    th_1 = manager.water_content(H_all + eps)
+    C_approx = (th_1 - Theta_all) / eps
+    C_diff = C_all - C_approx
+    assert np.allclose(C_all, C_approx)
+
+    fig, axs = plt.subplots(1, 3, figsize=(12, 6), sharey=True)
+    colors = plt.cm.viridis(np.linspace(0, 1, n_mat))
+
+    for i, (soil, color) in enumerate(zip(soils, colors)):
+        label_ = f"n={soil.n}, $\\alpha$={soil.alpha}"
+        axs[0].plot(Theta_all[i], h_values, color=color, label=label_)
+        axs[1].plot(K_all[i],     h_values, color=color, label=label_)
+        axs[2].plot(C_all[i],     h_values, color=color, label=label_)
+
+    axs[0].set_title("Water Content (θ) vs. Head (h)")
+    axs[0].set_xlabel("θ")
+    axs[0].set_ylabel("Pressure head h [L]")
+    axs[0].legend()
+
+    axs[1].set_title("Hydraulic Conductivity (K) vs. Head (h)")
+    axs[1].set_xlabel("K")
+
+    axs[2].set_title("Specific Capacity (C) vs. Head (h)")
+    axs[2].set_xlabel("C")
+
+    for ax in axs:
+        ax.invert_xaxis()
+        ax.grid(True)
+        ax.set_xscale('log')
+
+    fig.tight_layout()
+    if fname is None:
+        plt.show()
+    else:
+        fig.savefig(fname)
 
 def plotting_test_manager():
     """
@@ -390,65 +453,7 @@ def plotting_test_manager():
     # We'll test multiple n values
     n_values = [1.2, 1.5, 2.0, 3.0, 4.0]
     materials = [base.update(n=n) for n in n_values]
-
-    # Array of pressure heads (from -10 up to +1, let's say)
-    h_values = np.linspace(-50, 1, 500)  # length e.g. 300
-    H_all = np.ones(len(n_values))[:, None] * h_values[None, :]
-
-    # 2) We want to build a single big array of heads, H_all,
-    #    which concatenates the h_values block for each material.
-    #    For example, if we have 5 materials and len(h_values)=300,
-    #    then len(H_all)=5*300=1500.
-
-
-    # 3) Build mat_ids so that each block of 300 belongs to one material
-    mat_ids = np.arange(len(n_values), dtype=int) #[:, None] * np.ones_like(h_values,dtype=int)[None, :]
-
-    # 4) Create the manager with multiple materials
-    manager = SoilMaterialManager(materials=materials, mat_ids=mat_ids)
-
-    mat_shape = (len(n_values), len(h_values))
-    #H_all = H_all.ravel()
-    # 5) Compute water_content, conductivity, capacity for entire H_all
-    Theta_all = manager.water_content(H_all)    #.reshape(*mat_shape)
-    K_all     = manager.hydraulic_conductivity(H_all)   #.reshape(*mat_shape)
-    C_all     = manager.capacity(H_all) #.reshape(*mat_shape)
-
-
-    diff = manager.pressure_head_from_theta(Theta_all) - H_all
-    assert np.allclose(manager.pressure_head_from_theta(Theta_all), H_all)
-    eps = 1.0e-6
-    th_1 = manager.water_content(H_all + eps)
-    C_approx = (th_1 - Theta_all) / eps
-    C_diff = C_all - C_approx
-    assert np.allclose(C_all, C_approx)
-
-    fig, axs = plt.subplots(1, 3, figsize=(12, 6), sharey=True)
-    colors = plt.cm.viridis(np.linspace(0, 1, len(n_values)))
-
-    for i, (n_, color) in enumerate(zip(n_values, colors)):
-        label_ = f"n={n_}"
-        axs[0].plot(Theta_all[i], h_values, color=color, label=label_)
-        axs[1].plot(K_all[i],     h_values, color=color, label=label_)
-        axs[2].plot(C_all[i],     h_values, color=color, label=label_)
-
-    axs[0].set_title("Water Content (θ) vs. Head (h)")
-    axs[0].set_xlabel("θ")
-    axs[0].set_ylabel("Pressure head h [L]")
-    axs[0].legend()
-
-    axs[1].set_title("Hydraulic Conductivity (K) vs. Head (h)")
-    axs[1].set_xlabel("K")
-
-    axs[2].set_title("Specific Capacity (C) vs. Head (h)")
-    axs[2].set_xlabel("C")
-
-    for ax in axs:
-        ax.invert_xaxis()
-        ax.grid(True)
-        ax.set_xscale('log')
-    plt.tight_layout()
-    plt.show()
+    plot_soils(materials)
 
 
 if __name__ == "__main__":
