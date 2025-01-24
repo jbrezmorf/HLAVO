@@ -134,7 +134,7 @@ class KalmanFilter:
         ### For each measurement (time step) ukf.update() and ukf.predict() are called
         ########################################
         pred_loc_measurements, test_pred_loc_measurements, pred_model_params, pred_state_data_iter,\
-        ukf_p_var_iter, ukf_last_P = self.run_kalman_filter(ukf, noisy_measurements, space_indices_train,space_indices_test)
+        ukf_p_var_iter, ukf_last_P = self.run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test)
 
 
         ##############################
@@ -179,17 +179,16 @@ class KalmanFilter:
 
         data_pressure = model.get_data(current_time=1 / model._run.TimeStep.Value, data_name="pressure")
 
-        print("data_pressure ", data_pressure)
-
         measurement, last_time_step_data_pressure = self.get_measurements(model, space_step=model.get_space_step(),
                                        mes_locations=self.kalman_config["mes_locations_train"], data_name=data_name)
-
-        print("measurement[0] ", measurement[0])
 
         measurement_to_test, last_time_step_data_pressure = self.get_measurements(model, space_step=model.get_space_step(),
                                                mes_locations=self.kalman_config["mes_locations_test"], data_name=data_name)
 
-        iter_values = np.array(list(KalmanFilter.get_nonzero_std_params(self.model_config["params"]).values()))[:, 0] #list(self.model_config["params"].values())
+        iter_values = np.array(list(KalmanFilter.get_nonzero_std_params(self.model_config["params"]).values()))
+
+        if len(iter_values) > 0:
+            iter_values = iter_values[:, 0] #list(self.model_config["params"].values())
 
         iter_state = list(np.squeeze(data_pressure))
         iter_state.extend(list(np.squeeze(measurement[0])))
@@ -304,8 +303,7 @@ class KalmanFilter:
             flux_eps_std = None
 
             dynamic_model_params = KalmanFilter.get_nonzero_std_params(model_config["params"])
-
-            if len(model_config["params"]) > 0:
+            if len(dynamic_model_params) > 0:
                 if "flux_eps" in model_config:
                     model_params_data = state_data[-len(dynamic_model_params)-1:-1]
                     flux_eps_std = state_data[-1]
@@ -372,8 +370,8 @@ class KalmanFilter:
                 slope_intercept = state_data[-len(kalman_config["mes_locations_train_slope_intercept"]):]
                 state_data = state_data[:-len(kalman_config["mes_locations_train_slope_intercept"])]
 
-            if len(model_config["params"]) > 0:
-                len_dynamic_params = len(KalmanFilter.get_nonzero_std_params(model_config["params"]))
+            len_dynamic_params = len(KalmanFilter.get_nonzero_std_params(model_config["params"]))
+            if len_dynamic_params > 0:
                 additional_data = state_data[-len_additional_data:-len_dynamic_params]
             else:
                 additional_data = state_data[-len_additional_data:]
@@ -409,7 +407,6 @@ class KalmanFilter:
 
     def set_kalman_filter(self, model, measurement_noise_covariance, state_length):
         num_state_params = state_length #last_time_step_data_pressure[1].shape[0] + self.additional_data_len# pressure + saturation + model parameters
-        print("num state params ", num_state_params)
         dim_z = len(self.kalman_config["mes_locations_train"])  # Number of measurement inputs
 
         sigma_points_params = self.kalman_config["sigma_points_params"]
@@ -417,7 +414,7 @@ class KalmanFilter:
         #sigma_points = JulierSigmaPoints(n=n, kappa=1)
         sigma_points = KalmanFilter.get_sigma_points_obj(sigma_points_params, num_state_params)
         #sigma_points = MerweScaledSigmaPoints(n=num_state_params, alpha=sigma_points_params["alpha"], beta=sigma_points_params["beta"], kappa=sigma_points_params["kappa"], sqrt_method=sqrt_func)
-        print("num_state_params ", num_state_params)
+
         # Initialize the UKF filter
         time_step = 1 # one hour time step
 
@@ -483,8 +480,12 @@ class KalmanFilter:
 
         model_dynamic_params_mean_std = np.array(list(KalmanFilter.get_nonzero_std_params(self.model_config["params"]).values()))
 
-        noisy_model_params_values = add_noise(model_dynamic_params_mean_std[:, 0], distr_type=self.kalman_config["noise_distr_type"],
-                                              noise_level=self.kalman_config["model_params_noise_level"], std=list(model_dynamic_params_mean_std[:, 1]))
+        noisy_model_params_values = []
+        params_std = []
+        if len(model_dynamic_params_mean_std) > 0:
+            noisy_model_params_values = add_noise(model_dynamic_params_mean_std[:, 0], distr_type=self.kalman_config["noise_distr_type"],
+                                                  noise_level=self.kalman_config["model_params_noise_level"], std=list(model_dynamic_params_mean_std[:, 1]))
+            params_std = model_dynamic_params_mean_std[:, 1]
         print("noisy model params values ", noisy_model_params_values)
         initial_state_std = np.ones(num_state_params)
 
@@ -494,8 +495,6 @@ class KalmanFilter:
             np.abs(np.array(initial_state_data) * self.kalman_config["measurements_noise_level"])
 
         initial_state_data.extend(noisy_model_params_values)
-
-        params_std = model_dynamic_params_mean_std[:, 1]
 
         if "flux_eps" in self.model_config:
             params_std.append(0)
