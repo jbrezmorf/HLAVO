@@ -76,6 +76,59 @@ class RichardsEquationSolver:
         nodes_z = np.linspace(0, z_bot, n_nodes)
         return RichardsEquationSolver(nodes_z, soil_manager, bc_funcs)
 
+
+    def optimal_nodes(self, z_existing, h_existing, K_existing, z_bottom, z_top, epsilon=1e-6, max_nodes=1000):
+        """
+        Computes the z-coordinates of nodes in a 1D mesh using an adaptive step size formula,
+        taking precomputed h and K as vectors at existing nodes.
+
+        Parameters:
+            z_existing (np.array): Array of existing z-coordinates of the domain.
+            h_existing (np.array): Array of pressure head values corresponding to z_existing.
+            K_existing (np.array): Array of hydraulic conductivity values corresponding to z_existing.
+            z_bottom (float): The starting z-coordinate of the domain (bottom).
+            z_top (float): The ending z-coordinate of the domain (top).
+            epsilon (float): A small constant to avoid division by zero.
+            max_nodes (int): Maximum number of nodes to generate.
+
+        Returns:
+            np.array: Array of new z-coordinates for the nodes.
+        """
+        # Initialize the node list with the bottom boundary
+        z_nodes = [z_bottom]
+        z_current = z_bottom
+
+        # Interpolators for h and K
+        h_interp = lambda z: np.interp(z, z_existing, h_existing)
+        K_interp = lambda z: np.interp(z, z_existing, K_existing)
+
+        while z_current < z_top and len(z_nodes) < max_nodes:
+            # Compute the interpolated pressure head and its gradient
+            h_current = h_interp(z_current)
+            h_next = h_interp(z_current + epsilon)
+            h_gradient = (h_next - h_current) / epsilon  # Numerical gradient
+
+            # Compute the interpolated hydraulic conductivity
+            K_current = K_interp(z_current)
+
+            # Compute the step size formula
+            step_size = (
+                    K_current * min(1, abs(h_gradient + 1)) /
+                    (abs(h_gradient) + epsilon)
+            )
+
+            # Update the current z-coordinate
+            z_current += step_size
+
+            # Avoid overshooting the top boundary
+            if z_current > z_top:
+                z_current = z_top
+
+            # Add the new node to the list
+            z_nodes.append(z_current)
+
+        return np.array(z_nodes)
+
     def plot_iter(self, t, H):
         t_iter = self._iters.setdafault(t, 0)
         import matplotlib.pyplot as plt
@@ -204,7 +257,7 @@ class RichardsEquationSolver:
     #     # Collect results as (time, H)
     #     return output_times, solution.y
 
-    def richards_solver(self, h_initial, t_span, t_out, method='Radau'): #method='LSODA'):
+    def richards_solver(self, h_initial, t_span, t_out, method='Radau', rtol=1.0e-6, atol=1.0e-8) -> RichardsSolverOutput: #method='LSODA'):
         """
         Solve Richards' equation using `solve_ivp` and save results at specified output times.
 
@@ -239,16 +292,24 @@ class RichardsEquationSolver:
             method=method,
             jac=self.compute_jacobian,
             t_eval=output_times,
-            rtol=1e-4,
-            atol=1e-6
+            rtol=rtol,
+            atol=atol
         )
         if not solution.success:
             raise Exception(f"Richards ODE solver failed after {len(solution.t)} time steps.\n" + f"Message: {solution.message}")
-
         H = (solution.y)  # time points at rows
+        return self.make_result(H, output_times, self.nodes_z)
+
+
+    def make_result(self, H: np.ndarray, output_times, nodes_z) -> RichardsSolverOutput:
+        """
+        Create a RichardsSolverOutput object from the solution of the ODE solver.
+        :param h:
+        :return:
+        """
         moisture = self.soil_manager.water_content(H).T
 
-        d = np.diff(self.nodes_z)
+        d = np.diff(nodes_z)
         Kvals = self.soil_manager.hydraulic_conductivity(H).T
         H = H.T
         bc_top_fn, bc_bot_fn = self.bc
@@ -261,7 +322,7 @@ class RichardsEquationSolver:
             moisture=moisture,      # (n_times, n_nodes)
             top_flux=top_flux,
             bottom_flux=bottom_flux,
-            nodes_z=self.nodes_z
+            nodes_z=nodes_z
         )
 
 

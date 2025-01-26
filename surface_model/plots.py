@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_richards_output(output, obs_points=None):
+def plot_richards_output(output, obs_points=None, fname=None):
     """
     Plot the results from RichardsSolverOutput.
 
@@ -69,5 +69,6 @@ def plot_richards_output(output, obs_points=None):
 
     axs[2, 1].axis('off')  # Leave the last subplot blank
 
-    plt.tight_layout()
-    plt.show()
+    fig.tight_layout()
+    if fname:
+        fig.savefig(fname)

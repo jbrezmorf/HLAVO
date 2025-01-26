@@ -2,8 +2,10 @@
 attrs
 numpy
 scipy
+pytest
+pandas
+
 #joblib
-#pandas
 #seaborn
 #scikit-learn
 matplotlib
