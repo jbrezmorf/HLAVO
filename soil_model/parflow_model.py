@@ -4,12 +4,12 @@
 from parflow import Run
 from parflow.tools import settings
 from parflow.tools.io import write_pfb, read_pfb
-from soil_model import evapotranspiration_fce
+#from soil_model import evapotranspiration_fce
 import numpy as np
 import os, pathlib
 from matplotlib import pyplot as plt
-from soil_model.abstract_model import AbstractModel
-from soil_model.auxiliary_functions import sqrt_func, set_nested_attr, get_nested_attr, add_noise
+from abstract_model import AbstractModel
+from auxiliary_functions import sqrt_func, set_nested_attr, get_nested_attr, add_noise
 
 
 class ToyProblem(AbstractModel):
@@ -300,25 +300,16 @@ class ToyProblem(AbstractModel):
 
     def set_init_pressure(self, init_p=None):
         # example of setting custom initial pressure
-
-        # create vector of z-coordinates for data vector in ascending order
         nz = self._run.ComputationalGrid.NZ
         dz = self._run.ComputationalGrid.DZ
-        z0 = self._run.ComputationalGrid.Lower.Z
-        zz = np.linspace(z0,z0+(nz-1)*dz,nz)
+        zz = np.linspace(0,-(nz-1)*dz,nz)
 
-<<<<<<<< HEAD:soil_model/parflow_model.py
         if init_p is None:
             init_p = np.zeros((nz,1,1))
             init_p[:, 0, 0] = zz-2
 
         # print("init_p.shape ", init_p.shape)
         #
-========
-        # define initial pressure data vector
-        init_p = np.zeros((nz,1,1))
-        init_p[:,0,0] = zz-2
->>>>>>>> JB_richards:surface_model/parflow_reference/toy_parflow.py
 
         filename = "toy_richards.init_pressure.pfb"
         filepath = self._workdir / pathlib.Path(filename)
@@ -333,23 +324,8 @@ class ToyProblem(AbstractModel):
         dz = self._run.ComputationalGrid.DZ
         zz = np.linspace(0, -(nz - 1) * dz, nz)
 
-<<<<<<<< HEAD:soil_model/parflow_model.py
         por = np.zeros((nz, 1, 1))
         por[:, 0, 0] = np.interp(zz, z_values, porosity_values)
-========
-    def set_porosity(self, z_values, porosity_values):
-        # example of setting porosity by piecewise linear interpolation of given values
-
-        # create vector of z-coordinates for data vector in ascending order
-        nz = self._run.ComputationalGrid.NZ
-        dz = self._run.ComputationalGrid.DZ
-        z0 = self._run.ComputationalGrid.Lower.Z
-        zz = np.linspace(z0,z0+(nz-1)*dz,nz)
-
-        # interpolate porosity values
-        por = np.zeros((nz,1,1))
-        por[:,0,0] = np.interp(zz, z_values, porosity_values)
->>>>>>>> JB_richards:surface_model/parflow_reference/toy_parflow.py
 
         filename = "toy_richards.porosity.pfb"
         filepath = self._workdir / pathlib.Path(filename)
@@ -358,7 +334,6 @@ class ToyProblem(AbstractModel):
         self._run.Geom.domain.Porosity.Type = "PFBFile"
         self._run.Geom.domain.Porosity.FileName = filename
 
-<<<<<<<< HEAD:soil_model/parflow_model.py
     def run(self, init_pressure, precipitation_value, model_params, stop_time):
 
         self.set_dynamic_params(model_params)
@@ -367,11 +342,6 @@ class ToyProblem(AbstractModel):
         self.set_init_pressure(init_pressure)
 
         self._run.TimingInfo.StopTime = stop_time
-========
-
-    def run(self):
-        self._run.write(file_format='yaml')
->>>>>>>> JB_richards:surface_model/parflow_reference/toy_parflow.py
         self._run.run(working_directory=self._workdir)
         self._run.write(file_format='yaml')
 
@@ -489,7 +459,6 @@ class ToyProblem(AbstractModel):
             pressure[data.time,:] = np.flip(data.pressure.reshape(nz))
             data.time += 1
 
-<<<<<<<< HEAD:soil_model/parflow_model.py
         print("pressure ", pressure)
 
         #print("np.flip(pressure) ", np.flip(pressure).shape)
@@ -499,10 +468,6 @@ class ToyProblem(AbstractModel):
         plt.clf()
         #fig, ax = plt.subplots(1, 1)
         plt.imshow(pressure, aspect='auto')
-========
-        plt.clf()
-        plt.imshow(np.flip(pressure), aspect='auto')
->>>>>>>> JB_richards:surface_model/parflow_reference/toy_parflow.py
         nticks = int(ntimes/10)
         #print("n ticks ", nticks)
 
@@ -534,7 +499,6 @@ class ToyProblem(AbstractModel):
     def plot_pressure(self, pressure):
         ntimes = pressure.shape[0]
 
-<<<<<<<< HEAD:soil_model/parflow_model.py
 
         self.save_pressure("pressure.png")
         return
@@ -576,45 +540,3 @@ class ToyProblem(AbstractModel):
 # toy.set_porosity([-10,-5,0], [0.1, 1, 0.5])
 # toy.run()
 # toy.save_pressure("pressure.png")
-========
-    def save_porosity(self, image_file):
-        cwd = settings.get_working_directory()
-        settings.set_working_directory(self._workdir)
-
-        # Get the DataAccessor object corresponding to the Run object
-        data = self._run.data_accessor
-        data.time = 0
-
-        ntimes = len(data.times)
-        nz = data.computed_porosity.shape[0]
-        porosity = np.zeros((ntimes, nz))
-
-        # Iterate through the timesteps of the DataAccessor object
-        # i goes from 0 to n_timesteps - 1
-        for i in data.times:
-            porosity[data.time,:] = data.computed_porosity.reshape(nz)
-            data.time += 1
-
-        plt.clf()
-        plt.imshow(np.flip(porosity), aspect='auto')
-        nticks = int(ntimes/10)
-        plt.yticks( np.arange(ntimes)[::nticks], np.flip(data.times[::nticks]) )
-        nzticks = int(nz/10)
-        plt.xticks( np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
-        plt.colorbar()
-        plt.title("porosity")
-        plt.xlabel("depth [m]")
-        plt.ylabel("time [h]")
-        plt.savefig(image_file)
-
-        settings.set_working_directory(cwd)
-
-
-toy = ToyProblem(workdir="output-toy")
-toy.setup_config()
-toy.set_init_pressure()
-toy.set_porosity([-10,-5,0], [0.1, 1, 0.5])
-toy.run()
-toy.save_pressure("pressure.png")
-toy.save_porosity("porosity.png")
->>>>>>>> JB_richards:surface_model/parflow_reference/toy_parflow.py
