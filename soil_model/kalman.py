@@ -8,13 +8,13 @@ import scipy as sc
 import seaborn as sns
 import pickle
 import matplotlib.pyplot as plt
-from soil_model.parflow_model import ToyProblem
+from parflow_model import ToyProblem
 from filterpy.kalman import UnscentedKalmanFilter
 from filterpy.common import Q_discrete_white_noise
 from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
-from soil_model.evapotranspiration_fce import ET0
-from soil_model.auxiliary_functions import sqrt_func, add_noise
-from soil_model.data.load_data import load_data
+#from soil_model.evapotranspiration_fce import ET0
+from auxiliary_functions import sqrt_func, add_noise
+from data.load_data import load_data
 
 
 ######
@@ -36,8 +36,6 @@ class KalmanFilter:
 
         self.verbose = False
         self.work_dir = args.work_dir
-
-        os.chdir(self.work_dir)
 
         config_file_path = os.path.abspath(args.config_file)
         config = KalmanFilter.load_config(config_file_path)
