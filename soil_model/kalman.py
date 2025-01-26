@@ -427,8 +427,8 @@ class KalmanFilter:
 
         ukf.Q = np.ones(num_state_params)
 
-        if "Q_model_params_var" in self.kalman_config:
-            len_dynamic_params = len(KalmanFilter.get_nonzero_std_params(self.model_config["params"]))
+        len_dynamic_params = len(KalmanFilter.get_nonzero_std_params(self.model_config["params"]))
+        if "Q_model_params_var" in self.kalman_config and len_dynamic_params > 0:
             ukf.Q[:-len_dynamic_params] = ukf.Q[:-len_dynamic_params] * self.kalman_config["Q_var"]
             ukf.Q[-len_dynamic_params:] = ukf.Q[-len_dynamic_params:] * self.kalman_config["Q_model_params_var"]
         else:
@@ -443,6 +443,7 @@ class KalmanFilter:
         ukf.R = measurement_noise_covariance #* 1e6
         # print("R.shape ", ukf.R.shape)
         # exit()
+        print("R measurement_noise_covariance ", measurement_noise_covariance)
 
         # best setting so far initial_covariance = np.eye(n) * 1e4, ukf.Q = np.ones(num_locations) * 1e-7
         #data.time = 0
@@ -506,26 +507,30 @@ class KalmanFilter:
         initial_state_covariance = np.zeros((num_state_params, num_state_params))
         np.fill_diagonal(initial_state_covariance, np.array(initial_state_std)**2)
 
-        print("initial state std ", initial_state_std)
-        print("initial state std ", initial_state_std ** 2)
+        # print("initial state std ", initial_state_std)
+        # print("initial state std ", initial_state_std ** 2)
 
         #initial_state_covariance[-1] = 1e
         #ukf.Q[-1] = 5e-8
 
-        print("initial state data ", initial_state_data)
-        print("initial state covariance ", initial_state_covariance.shape)
-        print("initital state std ", initial_state_std)
+        # print("initial state data ", initial_state_data)
+        # print("initial state covariance ", initial_state_covariance.shape)
+        # print("initital state std ", initial_state_std)
 
         if "flux_eps" in self.model_config:
             initial_state_data.append(self.model_config["flux_eps"][1])  # eps std to state
 
         initial_state_data = np.array(initial_state_data)
 
-        print("initial state data ", initial_state_data.shape)
+        #print("initial state data ", initial_state_data.shape)
 
 
         ukf.x = initial_state_data #initial_state_data #(state.data[int(0.3/0.05)], state.data[int(0.6/0.05)])#state  # Initial state vector
         ukf.P = initial_state_covariance  # Initial state covariance matrix
+
+        # print("initital state data ", initial_state_data)
+        # print("initial state covariance ", initial_state_covariance)
+
 
         return ukf
 
@@ -677,19 +682,26 @@ class KalmanFilter:
     def plot_measurements(times, measurements, noisy_measurements, pred_loc_measurements, pred_loc_measurements_variances, measurements_data_name, title_prefix):
         n_measurements = noisy_measurements.shape[1]
 
+        import matplotlib
+        from matplotlib import ticker
+        formatter = ticker.ScalarFormatter(useMathText=True)
+        formatter.set_scientific(True)
+        matplotlib.rcParams.update({'font.size': 26})
+
         print("n measurements ", n_measurements)
 
         for i in range(n_measurements):
             print("np.sqrt(pred_loc_measurements_variances[:, i]) ", np.sqrt(pred_loc_measurements_variances[:, i]))
             fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+            #fig, axes = plt.subplots(1, 1)
             #axes.scatter(times, pred_loc_measurements[:, i], marker="o", label="predictions")
-            axes.errorbar(times, pred_loc_measurements[:, i], yerr=np.sqrt(pred_loc_measurements_variances[:, i]), fmt='o', capsize=5,
-                          label='predictions')
+            axes.errorbar(times, pred_loc_measurements[:, i], ms=5, yerr=np.sqrt(pred_loc_measurements_variances[:, i]), fmt='o', capsize=5,
+                          label='UKF predictions')
             if len(measurements) > 0:
-                axes.scatter(times, measurements[:, i], marker='x', label="measurements")
+                axes.scatter(times, measurements[:, i], s=15, marker='x', label="measurements")
 
-            axes.scatter(times, noisy_measurements[:, i], marker='x', label="noisy measurements")
-            axes.set_xlabel("time")
+            axes.scatter(times, noisy_measurements[:, i], s=15, marker='x', label="noisy measurements")
+            axes.set_xlabel("time[h]")
             axes.set_ylabel(measurements_data_name)
             fig.legend()
             fig.savefig(title_prefix + "time_{}_loc_{}.pdf".format(measurements_data_name, i))

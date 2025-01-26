@@ -196,19 +196,20 @@ class ToyProblem(AbstractModel):
         #-----------------------------------------------------------------------------
         self._run.BCPressure.PatchNames = "bottom top"
 
-        # self._run.Patch.bottom.BCPressure.Type = "DirEquilRefPatch"
-        # self._run.Patch.bottom.BCPressure.Cycle = "constant"
-        # self._run.Patch.bottom.BCPressure.RefGeom = "domain"
-        # self._run.Patch.bottom.BCPressure.RefPatch = "bottom"
-        # self._run.Patch.bottom.BCPressure.alltime.Value = -2.0
-
-        self._run.Patch.bottom.BCPressure.Type = "FluxConst"
+        self._run.Patch.bottom.BCPressure.Type = "DirEquilRefPatch"
         self._run.Patch.bottom.BCPressure.Cycle = "constant"
-        self._run.Patch.bottom.BCPressure.alltime.Value = 0
+        self._run.Patch.bottom.BCPressure.RefGeom = "domain"
+        self._run.Patch.bottom.BCPressure.RefPatch = "bottom"
+        self._run.Patch.bottom.BCPressure.alltime.Value = -2.0
+
+        #@TODO: use the following
+        #self._run.Patch.bottom.BCPressure.Type = "FluxConst"
+        #self._run.Patch.bottom.BCPressure.Cycle = "constant"
+        #self._run.Patch.bottom.BCPressure.alltime.Value = 0
 
         self._run.Patch.top.BCPressure.Type = "FluxConst"
         self._run.Patch.top.BCPressure.Cycle = "constant"
-        self._run.Patch.top.BCPressure.alltime.Value = 0 #-2e-2 #-1.3889 * 10**-6  # 5 mm/h #-2e-2 #-2e-2 #-2e-3 # set in [m/s]
+        self._run.Patch.top.BCPressure.alltime.Value = -2e-2 #-1.3889 * 10**-6  # 5 mm/h #-2e-2 #-2e-2 #-2e-3 # set in [m/s]
 
         #---------------------------------------------------------
         # Initial conditions: water pressure
@@ -484,8 +485,8 @@ class ToyProblem(AbstractModel):
         print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
         #print("nzticks ", nzticks)
         #plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
-        #plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
-        plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.,  1.1, 1.2])
+        plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
+        #plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.,  1.1, 1.2])
         plt.colorbar()
         plt.title("pressure")
         plt.xlabel("depth [m]")
@@ -497,6 +498,10 @@ class ToyProblem(AbstractModel):
 
     def plot_pressure(self, pressure):
         ntimes = pressure.shape[0]
+
+
+        self.save_pressure("pressure.png")
+        return
 
         plt.clf()
         # fig, ax = plt.subplots(1, 1)
@@ -518,8 +523,8 @@ class ToyProblem(AbstractModel):
         # print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
         # print("nzticks ", nzticks)
         # plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
-        # plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
-        plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2])
+        plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
+        #plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2])
         plt.colorbar()
         plt.title("pressure")
         plt.xlabel("depth [m]")

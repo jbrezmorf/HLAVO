@@ -1,0 +1,70 @@
+seed: 123456
+model_config:
+  model_class_name: "ToyProblem"
+  params:
+      "ComputationalGrid.Lower.X": [0.0, 0]
+      "ComputationalGrid.Lower.Y": [0.0, 0]
+      "ComputationalGrid.Lower.Z": [-10, 0]
+      "ComputationalGrid.DX": [1, 0]
+      "ComputationalGrid.DY": [1, 0]
+      "ComputationalGrid.DZ": [0.5, 0]
+      "ComputationalGrid.NX": [1, 0] # Number of grid cells in x-direction
+      "ComputationalGrid.NY": [1, 0] # Number of grid cells in y-direction
+      "ComputationalGrid.NZ": [20, 0] # Number of grid cells in z-direction
+      "Geom.domain.Lower.X": [0.0, 0]
+      "Geom.domain.Lower.Y": [0.0, 0]
+      "Geom.domain.Lower.Z": [-10, 0]
+      "Geom.domain.Upper.X": [1, 0]
+      "Geom.domain.Upper.Y": [1, 0]
+      "Geom.domain.Upper.Z": [0.0, 0]
+      "Geom.domain.Perm.Value": [0.012833, 0.001]
+      "Geom.domain.Saturation.N": [3.7, 0.1]
+  rain_periods: 
+    - [28, -0.02]    # hours of rain with precipitation
+    - [16, 0]    
+    - [24, -0.02]
+    # - [4, -0.02] 
+    
+  #rain_periods: 
+  #  - [8, -0.02]    # hours of rain with precipitation
+  #  - [4, 0]    
+  #  - [8, -0.02] 
+  evapotranspiration_params:
+    names:
+      - "n"
+      - "T"
+      - "u2"
+      - "Tmax"
+      - "Tmin"
+      - "RHmax"
+      - "RHmin"
+      - "month"
+    values:
+      - 14
+      - 20
+      - 10
+      - 27
+      - 12
+      - 0.55
+      - 0.35
+      - 6
+kalman_config:
+  measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
+  mes_locations_train: 
+    - 0.5
+    - 1.5
+    #- 2.5
+    #- 3.5
+  mes_locations_test: 
+    - 1
+    - 2
+  measurements_noise_level: 0.1
+  noise_distr_type: uniform #gaussian
+  model_params_noise_level: 0.1
+  pressure_saturation_data_noise_level: 0.1
+  pressure_saturation_data_std: 3.2
+  Q_var: 0.00005
+  Q_model_params_var: 0.00000001
+  sigma_points_params: {"alpha": 0.01, "beta": 2, "kappa": 1}
+  plot: True
+
