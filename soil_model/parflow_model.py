@@ -24,6 +24,14 @@ class ToyProblem(AbstractModel):
 
         self.setup_config(config["static_params"])
 
+        # Check PARFLOW installation
+        if "PARFLOW_DIR" in config:
+            os.environ['PARFLOW_DIR'] = str((self._workdir / config["PARFLOW_DIR"]).absolute())
+        parflow_dir = os.environ.get('PARFLOW_DIR', None)
+        assert parflow_dir is not None, "The PARFLOW_DIR environment variable is not set."
+        parflow_path = pathlib.Path(parflow_dir)
+        # Check if the directory exists
+        assert parflow_path.is_dir(), f"The PARFLOW_DIR environment variable is set, but the directory does not exist: {parflow_path}"
 
     def setup_config(self, static_params_dict={}):
         #-----------------------------------------------------------------------------

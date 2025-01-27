@@ -1,9 +1,12 @@
-#PyYAML
+PyYAML
 attrs
 numpy
 scipy
 pytest
 pandas
+filterpy
+seaborn
+pftools[all]
 
 #joblib
 #seaborn

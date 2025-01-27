@@ -1,5 +1,5 @@
-import os
 import sys
+from pathlib import Path
 import yaml
 import argparse
 import json
@@ -16,12 +16,10 @@ from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
 from auxiliary_functions import sqrt_func, add_noise
 from data.load_data import load_data
 
-
 ######
 # Unscented Kalman Filter for Parflow model
 # see __main__ for details
 ######
-
 
 def get_space_indices(grid_dz, mes_locations):
     return [int(mes_loc / grid_dz) for mes_loc in mes_locations]
@@ -35,9 +33,9 @@ class KalmanFilter:
         args = parser.parse_args(sys.argv[1:])
 
         self.verbose = False
-        self.work_dir = args.work_dir
+        self.work_dir = Path(args.work_dir)
 
-        config_file_path = os.path.abspath(args.config_file)
+        config_file_path = Path(args.config_file).resolve()
         config = KalmanFilter.load_config(config_file_path)
 
         self.model_config = config["model_config"]
@@ -48,7 +46,7 @@ class KalmanFilter:
         else:
             raise NotImplemented("Import desired class")
 
-        self.kalman_config["work_dir"] = self.work_dir
+        self.kalman_config["work_dir"] = str(self.work_dir)
 
         if "static_params" not in self.model_config:
             self.model_config["static_params"] = {}
@@ -67,7 +65,7 @@ class KalmanFilter:
         np.random.seed(config["seed"])
 
     def plot_pressure(self):
-        model = self.model_class(self.model_config, workdir=os.path.join(self.work_dir, "output-toy"))
+        model = self.model_class(self.model_config, workdir=self.work_dir / "output-toy")
 
         et_per_time = 0 #ET0(**dict(zip(self.model_config['evapotranspiration_params']["names"], self.model_config['evapotranspiration_params']["values"]))) / 1000 / 24  # mm/day to m/sec
         #model._run.Patch.top.BCPressure.alltime.Value = self.model_config["precipitation_list"][0] + et_per_time
@@ -83,7 +81,7 @@ class KalmanFilter:
         #############################
         ### Generate measurements ###
         #############################
-        model = self.model_class(self.model_config, workdir=os.path.join(self.work_dir, "output-toy"))
+        model = self.model_class(self.model_config, workdir=self.work_dir / "output-toy")
         if "measurements_dir" in self.kalman_config:
             noisy_measurements, noisy_measurements_to_test = load_data(data_dir=self.kalman_config["measurements_dir"], n_samples=len(self.model_config["precipitation_list"]))
 
@@ -138,27 +136,25 @@ class KalmanFilter:
         ##############################
         ### Results postprocessing ###
         ##############################
+        KalmanFilter.serialize_kalman_filter(ukf, self.work_dir / "kalman_filter.pkl")
         # Serialize the Kalman filter object
-        KalmanFilter.serialize_kalman_filter(ukf, os.path.join(self.work_dir, "kalman_filter.pkl"))
+        auxiliary_data = {"additional_data_len": self.additional_data_len}
 
-        auxiliary_data = {}
-        auxiliary_data["additional_data_len"] = self.additional_data_len
-
-        with open(os.path.join(self.work_dir, "auxiliary_data.json"), 'w') as f:
+        with (self.work_dir / "auxiliary_data.json").open('w') as f:
             json.dump(auxiliary_data, f)
-        with open(os.path.join(self.work_dir, "model_config.json"), 'w') as f:
+        with (self.work_dir / "model_config.json").open('w') as f:
             json.dump(self.model_config, f)
-        with open(os.path.join(self.work_dir, "kalman_config.json"), 'w') as f:
+        with (self.work_dir / "kalman_config.json").open('w') as f:
             json.dump(self.kalman_config, f)
 
-        np.save(os.path.join(self.work_dir, "noisy_measurements"), noisy_measurements)
-        np.save(os.path.join(self.work_dir, "pred_loc_measurements"), pred_loc_measurements)
-        np.save(os.path.join(self.work_dir, "pred_model_params"), pred_model_params)
-        np.save(os.path.join(self.work_dir, "noisy_measurements_to_test"), noisy_measurements_to_test)
-        np.save(os.path.join(self.work_dir, "test_pred_loc_measurements"), test_pred_loc_measurements)
-        np.save(os.path.join(self.work_dir, "pred_state_data_iter"), pred_state_data_iter)
-        np.save(os.path.join(self.work_dir, "ukf_p_var_iter"), ukf_p_var_iter)
-        np.save(os.path.join(self.work_dir, "ukf_last_P"), ukf_last_P)
+        np.save(self.work_dir / "noisy_measurements", noisy_measurements)
+        np.save(self.work_dir / "pred_loc_measurements", pred_loc_measurements)
+        np.save(self.work_dir / "pred_model_params", pred_model_params)
+        np.save(self.work_dir / "noisy_measurements_to_test", noisy_measurements_to_test)
+        np.save(self.work_dir / "test_pred_loc_measurements", test_pred_loc_measurements)
+        np.save(self.work_dir / "pred_state_data_iter", pred_state_data_iter)
+        np.save(self.work_dir / "ukf_p_var_iter", ukf_p_var_iter)
+        np.save(self.work_dir / "ukf_last_P", ukf_last_P)
 
         self.plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test,
                      noisy_measurements_to_test, pred_model_params, measurements, noisy_measurements, self.kalman_config["measurements_data_name"], ukf_p_var_iter)
@@ -742,11 +738,10 @@ class KalmanFilter:
         print("times.shape ", times.shape)
         print("xs[:, 0].shape ", pred_loc_measurements[:, 0].shape)
 
-        np.save(os.path.join(self.work_dir, "times"), times)
-        np.save(os.path.join(self.work_dir, "model_params_variances"), model_params_variances)
-        np.save(os.path.join(self.work_dir, "pred_loc_measurements_variances"), pred_loc_measurements_variances)
-        np.save(os.path.join(self.work_dir, "test_pred_loc_measurements_variances"), test_pred_loc_measurements_variances)
-
+        np.save(self.work_dir / "times", times)
+        np.save(self.work_dir / "model_params_variances", model_params_variances)
+        np.save(self.work_dir / "pred_loc_measurements_variances", pred_loc_measurements_variances)
+        np.save(self.work_dir / "test_pred_loc_measurements_variances", test_pred_loc_measurements_variances)
 
         # plt.scatter(times, pred_loc_measurements[:, 0], marker="o", label="predictions")
         # plt.scatter(times, measurements[:, 0], marker='x',  label="measurements")
@@ -851,7 +846,7 @@ class KalmanFilter:
 
     @staticmethod
     def load_config(config_path):
-        with open(config_path, "r") as f:
+        with config_path.open("r") as f:
             config_dict = yaml.safe_load(f)
         return config_dict
 
@@ -868,7 +863,7 @@ class KalmanFilter:
             'dim_z': kf._dim_z,
             'dt': kf._dt,
         }
-        with open(filename, 'wb') as f:
+        with filename.open('wb') as f:
             pickle.dump(data, f)
 
     @staticmethod
@@ -919,6 +914,4 @@ if __name__ == "__main__":
     # pr.disable()
     # ps = pstats.Stats(pr).sort_stats('cumtime')
     # ps.print_stats(50)
-
-
 

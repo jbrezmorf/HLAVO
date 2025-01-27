@@ -1,6 +1,7 @@
 seed: 123456
 model_config:
   model_class_name: "ToyProblem"
+  PARFLOW_DIR: "../../../surface_model/parflow_reference/parflow"  
   params:
       "ComputationalGrid.Lower.X": [0.0, 0]
       "ComputationalGrid.Lower.Y": [0.0, 0]
@@ -58,7 +59,7 @@ kalman_config:
   mes_locations_test: 
     - 1
     - 2
-  measurements_noise_level: 0.1
+  measurements_noise_level: 0.05
   noise_distr_type: uniform #gaussian
   model_params_noise_level: 0.1
   pressure_saturation_data_noise_level: 0.1
