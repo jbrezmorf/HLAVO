@@ -38,7 +38,6 @@ class ToyProblem(AbstractModel):
         # File input version number
         #-----------------------------------------------------------------------------
         self._run.FileVersion = 4
-
         #-----------------------------------------------------------------------------
         # Process Topology
         #-----------------------------------------------------------------------------
@@ -355,14 +354,19 @@ class ToyProblem(AbstractModel):
 
         settings.set_working_directory(self._workdir)
 
+    def get_pressure(self, current_time):
+        data = self._run.data_accessor
+        data.time = current_time
+        return data.pressure
+
     def get_data(self, current_time, data_name="pressure"):
         data = self._run.data_accessor
         data.time = current_time
 
         if data_name == "pressure":
-            return data.pressure
+            return np.flip(np.squeeze(data.pressure))
         elif data_name == "saturation":
-            return data.saturation
+            return np.flip(np.squeeze(data.saturation))
         else:
             raise NotImplemented("This method returns 'pressure' or 'saturation' only")
 

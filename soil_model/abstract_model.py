@@ -11,7 +11,11 @@ class AbstractModel(ABC):
         pass
 
     @abstractmethod
-    def get_data(self, time: float, data_name: str ="pressure") -> np.ndarray:
+    def get_pressure(self, time: float) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def get_data(self, time: float, data_name: str) -> np.ndarray:
         pass
 
     @abstractmethod

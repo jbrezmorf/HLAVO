@@ -96,26 +96,19 @@ class KalmanFilter:
             measurements = []
         else:
             model, measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, \
-            state_data_iters, last_time_step_data_pressure = self.generate_measurements(model, self.kalman_config["measurements_data_name"])
+            state_data_iters, last_time_step_data_pressure = self.generate_measurements(model, self.kalman_config["measurements"])
 
             residuals = noisy_measurements - measurements
             measurement_noise_covariance = np.cov(residuals, rowvar=False)
 
         self.model_config["grid_dz"] = model.get_space_step()
-        self.additional_data_len = len(KalmanFilter.get_nonzero_std_params(self.model_config["params"])) #len(self.kalman_config["mes_locations_train"]) + \
-                                   #len(self.kalman_config["mes_locations_test"]) + \
-                                    #+ \
-                                   #len(self.kalman_config["mes_locations_train_slope_intercept"])
+        self.additional_data_len = len(KalmanFilter.get_nonzero_std_params(self.model_config["params"]))
 
         if "flux_eps" in self.model_config:
             self.additional_data_len += 1
 
         if self.kalman_config["plot"]:
-            print("state data iters ", np.array(state_data_iters).shape)
             KalmanFilter.plot_pressure_from_state_data(model, state_data_iters, self.additional_data_len)
-
-        space_indices_train = [int(mes_loc / model.get_space_step()) for mes_loc in self.kalman_config["mes_locations_train"]]
-        space_indices_test = [int(mes_loc / model.get_space_step()) for mes_loc in self.kalman_config["mes_locations_test"]]
 
         #######################################
         ### Unscented Kalman filter setting ###
@@ -123,7 +116,6 @@ class KalmanFilter:
         ### - initital state covariance
         ### - UKF metrices
         ########################################
-        print("state_data_iters ", state_data_iters)
         ukf = self.set_kalman_filter(model, measurement_noise_covariance, state_length=np.array(state_data_iters).shape[1])
 
         #######################################
@@ -131,7 +123,7 @@ class KalmanFilter:
         ### For each measurement (time step) ukf.update() and ukf.predict() are called
         ########################################
         pred_loc_measurements, test_pred_loc_measurements, pred_model_params, pred_state_data_iter,\
-        ukf_p_var_iter, ukf_last_P = self.run_kalman_filter(ukf, noisy_measurements, space_indices_train, space_indices_test)
+        ukf_p_var_iter, ukf_last_P = self.run_kalman_filter(ukf, noisy_measurements)
 
 
         ##############################
@@ -158,41 +150,45 @@ class KalmanFilter:
         np.save(self.work_dir / "ukf_last_P", ukf_last_P)
 
         self.plot_results(pred_loc_measurements, test_pred_loc_measurements, measurements_to_test,
-                     noisy_measurements_to_test, pred_model_params, measurements, noisy_measurements, self.kalman_config["measurements_data_name"], ukf_p_var_iter)
+                     noisy_measurements_to_test, pred_model_params, measurements, noisy_measurements, self.kalman_config["measurements"], ukf_p_var_iter)
 
         if self.kalman_config["plot"]:
             self.plot_heatmap(cov_matrix=ukf_last_P)
 
-        #self.postprocess_data(state_data_iters, pred_state_data_iter)
-
-    def model_iteration(self, model, flux_bc_pressure, data_name, data_pressure=None):
+    def model_iteration(self, model, flux_bc_pressure, measurements_config, data_pressure=None):
         # et_per_time = ET0(n=14, T=20, u2=10, Tmax=27, Tmin=12, RHmax=0.55, RHmin=0.35,
         #                   month=6) / 1000 / 24  # mm/day to m/sec
         et_per_time = 0 #ET0(**dict(zip(self.model_config['evapotranspiration_params']["names"], self.model_config['evapotranspiration_params']["values"]))) / 1000 / 24  # mm/day to m/hour
 
         model.run(init_pressure=data_pressure, precipitation_value=flux_bc_pressure + et_per_time, model_params=self.model_config["params"], stop_time=1)
 
-        data_pressure = model.get_data(current_time=1 / model._run.TimeStep.Value, data_name="pressure")
 
-        measurement, last_time_step_data_pressure = self.get_measurements(model, space_step=model.get_space_step(),
-                                       mes_locations=self.kalman_config["mes_locations_train"], data_name=data_name)
+        data_pressure = model.get_pressure(current_time=1 / model._run.TimeStep.Value)
 
-        measurement_to_test, last_time_step_data_pressure = self.get_measurements(model, space_step=model.get_space_step(),
-                                               mes_locations=self.kalman_config["mes_locations_test"], data_name=data_name)
+        measurements_train = []
+        measurements_test = []
+        for measurement_name, train_test_locations in measurements_config.items():
+            measurement, last_time_step_data_pressure = self.get_measurements(model, space_step=model.get_space_step(),
+                                           mes_locations=train_test_locations["train_loc"], data_name=measurement_name)
+
+            measurements_train.extend(measurement[0])
+
+            measurement_to_test, last_time_step_data_pressure = self.get_measurements(model, space_step=model.get_space_step(),
+                                                   mes_locations=train_test_locations["test_loc"], data_name=measurement_name)
+
+            measurements_test.extend(measurement_to_test[0])
 
         iter_values = np.array(list(KalmanFilter.get_nonzero_std_params(self.model_config["params"]).values()))
 
         if len(iter_values) > 0:
-            iter_values = iter_values[:, 0] #list(self.model_config["params"].values())
+            iter_values = iter_values[:, 0]
 
         iter_state = list(np.squeeze(data_pressure))
-        iter_state.extend(list(np.squeeze(measurement[0])))
-        iter_state.extend(list(np.squeeze(measurement_to_test[0])))
         iter_state.extend(iter_values)
 
-        return model, measurement[0], measurement_to_test[0], iter_values, last_time_step_data_pressure
+        return model, measurements_train, measurements_test, iter_values, last_time_step_data_pressure
 
-    def generate_measurements(self, model, data_name):
+    def generate_measurements(self, model, measurements_config):
         measurements = []
         measurements_to_test = []
         state_data_iters = []
@@ -205,7 +201,7 @@ class KalmanFilter:
             if i == 0:
                 data_pressure = None
 
-            model, measurement_train, measurement_test, iter_values, last_time_step_data_pressure = self.model_iteration(model, self.model_config["precipitation_list"][i], data_name, data_pressure=data_pressure)
+            model, measurement_train, measurement_test, iter_values, last_time_step_data_pressure = self.model_iteration(model, self.model_config["precipitation_list"][i], measurements_config, data_pressure=data_pressure)
             measurements.append(measurement_train)
             measurements_to_test.append(measurement_test)
 
@@ -215,11 +211,10 @@ class KalmanFilter:
                 print("i: {}, data_pressure: {} ".format(i, data_pressure))
 
             iter_state = list(np.squeeze(data_pressure))
-            #iter_state.extend(list(np.squeeze(measurement_train)))
-            #iter_state.extend(list(np.squeeze(measurement_test)))
             iter_state.extend(iter_values)
 
             state_data_iters.append(iter_state)
+
 
         noisy_measurements = KalmanFilter.add_noise_to_measurements(np.array(measurements), level=self.kalman_config["measurements_noise_level"], distr_type=self.kalman_config["noise_distr_type"])
         noisy_measurements_to_test = KalmanFilter.add_noise_to_measurements(np.array(measurements_to_test), level=self.kalman_config["measurements_noise_level"], distr_type=self.kalman_config["noise_distr_type"])
@@ -231,32 +226,18 @@ class KalmanFilter:
 
         times = np.arange(1, len(measurements) + 1, 1)
 
-        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-        axes.scatter(times, measurements[:, 0], marker="o", label="measurements")
-        axes.scatter(times, noisy_measurements[:, 0], marker='x', label="noisy measurements")
-        axes.set_xlabel("time")
-        axes.set_ylabel(data_name)
-        fig.savefig("L2_coarse_L1_fine_samples.pdf")
-        fig.legend()
-        plt.show()
+        measurements_format = []
+        measurements_train_loc = []
+        for name, m_data in measurements_config.items():
+            measurements_format.extend([name] * len(m_data["train_loc"]))
+            measurements_train_loc.extend(m_data["train_loc"])
 
-        if measurements.shape[1] > 1:
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            axes.scatter(times, measurements[:, 1], marker="o", label="measurements")
-            axes.scatter(times, noisy_measurements[:, 1], marker='x', label="noisy measurements")
-            axes.set_xlabel("time")
-            axes.set_ylabel(data_name)
-            fig.legend()
-            plt.show()
+        for i in range(measurements.shape[1]):
+            label = "{} loc: {}".format(measurements_format[i], measurements_train_loc[i])
 
-        # residuals = noisy_measurements - measurements
-        # # print("residuals ", residuals)
-        # # residuals = residuals * 2
-        # measurement_noise_covariance = np.cov(residuals, rowvar=False)
-        # print("measurement noise covariance ", measurement_noise_covariance)
-        # # print("10 percent cov ", np.cov(noisy_measurements*0.1, rowvar=False))
-        # # exit()
-        # # pde.plot_kymograph(storage)
+            KalmanFilter.plot_measurements(times, measurements[:, i], noisy_measurements[:, i], pred_loc_measurements=None,
+                                           label=label, title_prefix="train_{}_".format(label))
+
         return model, measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, state_data_iters, last_time_step_data_pressure
 
     def get_measurements(self, model, space_step, mes_locations=None, data_name="pressure"):
@@ -267,17 +248,11 @@ class KalmanFilter:
 
         current_time = 0
         for data_t in times:
-            if data_name == "saturation":
-                data_to_measure = model.get_data(current_time=current_time, data_name="saturation")
-            elif data_name == "pressure":
-                data_to_measure = model.get_data(current_time=current_time, data_name="pressure")
-
-            print("data to measure ", data_to_measure)
-
-            measurements[data_t, :] = np.flip(np.squeeze(data_to_measure))[space_indices]
+            data_to_measure = model.get_data(current_time=current_time, data_name=data_name)
+            measurements[data_t, :] = data_to_measure[space_indices]
             current_time += 1
 
-        return measurements, (current_time-1, model.get_data(current_time=current_time-1, data_name="pressure"))
+        return measurements, (current_time-1, model.get_pressure(current_time=current_time-1))
 
     @staticmethod
     def add_noise_to_measurements(measurements, level=0.1, distr_type="uniform"):
@@ -286,7 +261,6 @@ class KalmanFilter:
             noisy_measurements[:, i] = add_noise(measurements[:, i], noise_level=level, distr_type=distr_type)
         return noisy_measurements
 
-
     #####################
     ### Kalman filter ###
     #####################
@@ -294,7 +268,6 @@ class KalmanFilter:
     def state_transition_function_wrapper(model, model_config, kalman_config, kalman_obj):
         def state_transition_function(state_data, dt, time_step):
             dynamic_model_params = KalmanFilter.get_nonzero_std_params(model_config["params"])
-            #pressure_data = state_data[0:-len_additional_data]  # Extract saturation from state vector
             model_params_data = []
             flux_eps_std = None
 
@@ -310,8 +283,6 @@ class KalmanFilter:
 
             pressure_data = pressure_data.reshape(pressure_data.shape[0], 1, 1)
 
-            #model = self.model_class(model_config, workdir=os.path.join(kalman_config["work_dir"], "output-toy"))
-
             et_per_time = 0 #ET0(**dict(zip(model_config['evapotranspiration_params']["names"],
                        #model_config['evapotranspiration_params']["values"]))) / 1000 / 24
 
@@ -323,35 +294,32 @@ class KalmanFilter:
             #et_per_time += np.random.normal(0, 0.0001 ** 2)
             #model._run.Patch.top.BCPressure.alltime.Value = model_config["precipitation_list"][time_step] + et_per_time
 
-            space_indices_train = get_space_indices(model_config["grid_dz"], kalman_config["mes_locations_train"])
-            space_indices_test = get_space_indices(model_config["grid_dz"], kalman_config["mes_locations_test"])
-
             model_params_new_values = list(np.array(list(dynamic_model_params.values()))[: 0])
 
             if flux_eps_std is not None:
                 model_params_new_values.append(0)  # eps value in next state
 
-            print("pressure data ", pressure_data)
-            print("len pressure data ", len(pressure_data))
             model.run(init_pressure=pressure_data, precipitation_value=model_config["precipitation_list"][time_step] + et_per_time, model_params=model_config["params"], stop_time=1)
 
-            data_pressure = model.get_data(current_time=1/model._run.TimeStep.Value, data_name="pressure")
-            data_saturation = model.get_data(current_time=1 / model._run.TimeStep.Value, data_name="saturation")
-
-            saturation_data_loc_train = np.flip(np.squeeze(data_saturation))[space_indices_train]
+            data_pressure = model.get_pressure(current_time=1/model._run.TimeStep.Value)
 
             next_state_init = list(KalmanFilter.squeeze_to_last(data_pressure))
 
-            #
-            measurements = []
+            all_measurements = []
+            for measurement_name, train_test_locations in kalman_config["measurements"].items():
+                space_indices_train = get_space_indices(model_config["grid_dz"], train_test_locations["train_loc"])
+                space_indices_test = get_space_indices(model_config["grid_dz"], train_test_locations["test_loc"])
 
-            measurements.extend(list(KalmanFilter.squeeze_to_last(saturation_data_loc_train)))
+                measurement_data = model.get_data(current_time=1 / model._run.TimeStep.Value, data_name=measurement_name)
 
-            if len(space_indices_test) > 0:
-                saturation_data_loc_test = np.flip(KalmanFilter.squeeze_to_last(data_saturation))[space_indices_test]
-                measurements.extend(list(KalmanFilter.squeeze_to_last(saturation_data_loc_test)))
+                data_loc_train = measurement_data[space_indices_train]
+                all_measurements.extend(list(KalmanFilter.squeeze_to_last(data_loc_train)))
+                if len(space_indices_test) > 0:
+                    data_loc_test = measurement_data[space_indices_test]
+                    all_measurements.extend(list(KalmanFilter.squeeze_to_last(data_loc_test)))
 
-            kalman_obj.state_measurements[tuple(next_state_init)] = measurements
+
+            kalman_obj.state_measurements[tuple(next_state_init)] = all_measurements
 
             if len(model_params_new_values) == 0:
                 model_params_new_values = model_params_data
@@ -359,48 +327,33 @@ class KalmanFilter:
             if len(model_params_new_values) > 0:
                 next_state_init.extend(model_params_new_values)
 
-            print("new state ", np.array(next_state_init))
-
             return np.array(next_state_init)
         return state_transition_function
 
     @staticmethod
     def get_nonzero_std_params(model_params):
-        print("model params ", model_params)
         # Filter out items with nonzero std
         filtered_data = {key: value for key, value in model_params.items() if value[1] != 0}
         return filtered_data
 
     @staticmethod
     def measurement_function_wrapper(model_config, kalman_config, kalman_obj):
-        def measurement_function(state_data, space_indices_type=None):
+        def measurement_function(state_data, space_indices_type="train"):
             if "mes_locations_train_slope_intercept" in kalman_config:
                 slope_intercept = state_data[-len(kalman_config["mes_locations_train_slope_intercept"]):]
                 state_data = state_data[:-len(kalman_config["mes_locations_train_slope_intercept"])]
 
             len_dynamic_params = len(KalmanFilter.get_nonzero_std_params(model_config["params"]))
             if len_dynamic_params > 0:
-                additional_data = state_data[-len_dynamic_params:]
                 pressure_data = state_data[:-len_dynamic_params]
             else:
-                additional_data = []
                 pressure_data = state_data
 
-            len_space_indices_train = len(get_space_indices(model_config["grid_dz"], kalman_config["mes_locations_train"]))
-            len_space_indices_test = len(get_space_indices(model_config["grid_dz"], kalman_config["mes_locations_test"]))
+            measurements = kalman_obj.state_measurements[tuple(pressure_data)]
 
-            if space_indices_type is None:
-                space_indices_type = "train"
+            selected_measurements = KalmanFilter.select_measurements(measurements, model_config, kalman_config, space_indices_type)
 
-            print(np.array(list(kalman_obj.state_measurements.keys()))[:, 0])
-
-            if space_indices_type == "train":
-                measurements = kalman_obj.state_measurements[tuple(pressure_data)][:len_space_indices_train]
-                #print("train measurements ", measurements)
-            elif space_indices_type == "test":
-                measurements = kalman_obj.state_measurements[tuple(pressure_data)][len_space_indices_train:len_space_indices_train+len_space_indices_test]
-                print("test measurements ", measurements)
-            return measurements
+            return selected_measurements
         return measurement_function
 
     @staticmethod
@@ -419,7 +372,7 @@ class KalmanFilter:
 
     def set_kalman_filter(self, model, measurement_noise_covariance, state_length):
         num_state_params = state_length #last_time_step_data_pressure[1].shape[0] + self.additional_data_len# pressure + saturation + model parameters
-        dim_z = len(self.kalman_config["mes_locations_train"])  # Number of measurement inputs
+        dim_z = measurement_noise_covariance.shape[0] #len(self.kalman_config["mes_locations_train"])  # Number of measurement inputs
 
         sigma_points_params = self.kalman_config["sigma_points_params"]
 
@@ -457,41 +410,37 @@ class KalmanFilter:
         # exit()
         print("R measurement_noise_covariance ", measurement_noise_covariance)
 
-        # best setting so far initial_covariance = np.eye(n) * 1e4, ukf.Q = np.ones(num_locations) * 1e-7
-        #data.time = 0
-
-        space_indices_train = get_space_indices(self.model_config["grid_dz"], self.kalman_config["mes_locations_train"])
-        space_indices_test = get_space_indices(self.model_config["grid_dz"], self.kalman_config["mes_locations_test"])
-
-        print("space indices train ", space_indices_train)
-
-        #initial_state_data = np.array([np.squeeze(data.pressure), np.squeeze(data.saturation[space_indices])]).flatten()#np.squeeze(data.pressure)
-        #initial_state_data = list(np.squeeze(data.pressure))
-
-        data_pressure = model.get_data(current_time=0, data_name="pressure")
-        data_saturation = model.get_data(current_time=0, data_name="saturation")
+        data_pressure = model.get_pressure(current_time=0)
 
         initial_state_data = list(add_noise(np.squeeze(data_pressure), noise_level=self.kalman_config["pressure_saturation_data_noise_level"], distr_type=self.kalman_config["noise_distr_type"]))
 
-        saturation_data = []
+        all_measurements = []
+        for measurement_name, train_test_locations in self.kalman_config["measurements"].items():
+            measurement_data = model.get_data(current_time=0, data_name=measurement_name)
+            space_indices_train = get_space_indices(self.model_config["grid_dz"], train_test_locations["train_loc"])
+            space_indices_test = get_space_indices(self.model_config["grid_dz"], train_test_locations["test_loc"])
 
-        #print("data.saturation ", data.saturation)
-        #print("data.saturation[space_indices_train] ", data.saturation[space_indices_train])
-        #print("KalmanFilter.squeeze_to_last(data.saturation[space_indices_train]) ", KalmanFilter.squeeze_to_last(data.saturation[space_indices_train]))
-        #print("np.squeeze(data.saturation[space_indices_train]) ", np.squeeze(data.saturation[space_indices_train], axis=tuple(range(data.saturation[space_indices_train].ndim - 1))))
-        #print("list(np.squeeze(data.saturation[space_indices_train])) ", list(np.squeeze(data.saturation[space_indices_train], axis=tuple(range(data.saturation[space_indices_train].ndim - 1)))))
+            data_loc_train = measurement_data[space_indices_train]
+            all_measurements.extend(list(KalmanFilter.squeeze_to_last(data_loc_train)))
+            if len(space_indices_test) > 0:
+                data_loc_test = measurement_data[space_indices_test]
+                all_measurements.extend(list(KalmanFilter.squeeze_to_last(data_loc_test)))
 
-        saturation_data.extend(list(KalmanFilter.squeeze_to_last(data_saturation[space_indices_train])))
-        if len(space_indices_test) > 0:
-            #print("tuple(range(data.saturation[space_indices_test].ndim - 1))) ", tuple(range(data.saturation[space_indices_test].ndim - 1)))
-            saturation_data.extend(list(KalmanFilter.squeeze_to_last(data_saturation[space_indices_test])))
+        noisy_all_measurements = list(
+            add_noise(np.array(all_measurements),
+                      noise_level=self.kalman_config["pressure_saturation_data_noise_level"],
+                      distr_type=self.kalman_config["noise_distr_type"]))
 
-        saturation_data = list(
-            add_noise(np.array(saturation_data), noise_level=self.kalman_config["pressure_saturation_data_noise_level"], distr_type=self.kalman_config["noise_distr_type"]))
+        print("noisy all measurements ", noisy_all_measurements)
 
+
+        # saturation_data.extend(list(KalmanFilter.squeeze_to_last(data_saturation[space_indices_train])))
+        # if len(space_indices_test) > 0:
+        #     #print("tuple(range(data.saturation[space_indices_test].ndim - 1))) ", tuple(range(data.saturation[space_indices_test].ndim - 1)))
+        #     saturation_data.extend(list(KalmanFilter.squeeze_to_last(data_saturation[space_indices_test])))
         #initial_state_data.extend(saturation_data)
 
-        self.state_measurements[tuple(initial_state_data)] = saturation_data
+        self.state_measurements[tuple(initial_state_data)] = noisy_all_measurements
 
         model_dynamic_params_mean_std = np.array(list(KalmanFilter.get_nonzero_std_params(self.model_config["params"]).values()))
 
@@ -544,11 +493,30 @@ class KalmanFilter:
 
         # print("initital state data ", initial_state_data)
         # print("initial state covariance ", initial_state_covariance)
-
-
         return ukf
 
-    def run_kalman_filter(self, ukf, noisy_measurements, space_indices_train, space_indices_test):
+    @staticmethod
+    def select_measurements(measurements_data, model_config, kalman_config, space_indices_type="train"):
+        measurements_index = 0
+        selected_measurements = []
+        for measurement_name, train_test_locations in kalman_config["measurements"].items():
+            space_indices_train = get_space_indices(model_config["grid_dz"], train_test_locations["train_loc"])
+            space_indices_test = get_space_indices(model_config["grid_dz"], train_test_locations["test_loc"])
+
+            if space_indices_type == "train":
+                selected_measurements.extend(
+                    measurements_data[measurements_index: measurements_index + len(space_indices_train)])
+                measurements_index += len(space_indices_train) + len(space_indices_test)
+
+            elif space_indices_type == "test":
+                measurements_index += len(space_indices_train)
+                selected_measurements.extend(
+                    measurements_data[measurements_index: measurements_index + len(space_indices_test)])
+                measurements_index += len(space_indices_test)
+
+        return selected_measurements
+
+    def run_kalman_filter(self, ukf, noisy_measurements):
         pred_loc_measurements = []
         test_pred_loc_measurements = []
         pred_model_params = []
@@ -557,7 +525,7 @@ class KalmanFilter:
 
         model_dynamic_params = KalmanFilter.get_nonzero_std_params(self.model_config["params"])
 
-        print("noisy_meaesurements ", noisy_measurements)
+        #print("noisy_meaesurements ", noisy_measurements)
         # Loop through measurements at each time step
         for time_step, measurement in enumerate(noisy_measurements):
             ukf.predict(time_step=time_step)
@@ -566,7 +534,7 @@ class KalmanFilter:
             ukf.update(measurement)
             print("sum ukf.P ", np.sum(ukf.P))
             print("Estimated State:", ukf.x)
-            print("Estimated State:", ukf.x_prior)
+            #print("Estimated State:", ukf.x_prior)
 
             pred_state_iter.append(ukf.x)
             ukf_p_var_iter.append(np.diag(ukf.P))
@@ -578,20 +546,12 @@ class KalmanFilter:
             # est_loc_measurements = KalmanFilter.measurement_function_wrapper(model_config=self.model_config,
             #                                                                  kalman_config=self.kalman_config, kalman_obj=self)(ukf.x, space_indices_type="train")
 
-            len_space_indices_train = len(
-                get_space_indices(self.model_config["grid_dz"], self.kalman_config["mes_locations_train"]))
-            len_space_indices_test = len(
-                get_space_indices(self.model_config["grid_dz"], self.kalman_config["mes_locations_test"]))
+            measurements_data = self.state_measurements[list(self.state_measurements.keys())[-1]]
 
-            est_loc_measurements = self.state_measurements[list(self.state_measurements.keys())[-1]][:len_space_indices_train]
-
-            if len(self.kalman_config["mes_locations_test"]) > 0:
-                test_est_loc_measurements = self.state_measurements[list(self.state_measurements.keys())[-1]][
-                                   len_space_indices_train:len_space_indices_train + len_space_indices_test]
-
-
-            # test_est_loc_measurements = KalmanFilter.measurement_function_wrapper(model_config=self.model_config,
-            #                                                                  kalman_config=self.kalman_config, kalman_obj=self)(ukf.x, space_indices_type="test")
+            est_loc_measurements = KalmanFilter.select_measurements(measurements_data, self.model_config,
+                                                                    self.kalman_config, space_indices_type="train")
+            test_est_loc_measurements = KalmanFilter.select_measurements(measurements_data, self.model_config,
+                                                                self.kalman_config, space_indices_type="test")
 
             print("est_loc_measurements ", est_loc_measurements)
             print("test_est_loc_measurements ", test_est_loc_measurements)
@@ -608,21 +568,14 @@ class KalmanFilter:
 
     @staticmethod
     def plot_model_params(pred_model_params, times, variances, model_config):
-
         model_dynamic_params = KalmanFilter.get_nonzero_std_params(model_config["params"])
-        print("model dynamic params ", model_dynamic_params)
-
         for idx, (param_name, mean_value_std) in enumerate(model_dynamic_params.items()):
             fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            print("pred_model_params[:, {}]shape ".format(idx), pred_model_params[:, idx].shape)
             axes.hlines(y=mean_value_std[0], xmin=0, xmax=pred_model_params.shape[0], linewidth=2, color='r')
-            #axes.scatter(times, pred_model_params[:, idx], marker="o", label="predictions")
-            print("variances[:, idx] ", variances[:, idx])
-            axes.errorbar(times, pred_model_params[:, idx], yerr=np.sqrt(variances[:, idx]), fmt='o', capsize=5)# label='Data with variance')
-
-            #axes.set_xlabel("param_name")
+            axes.errorbar(times, pred_model_params[:, idx], yerr=np.sqrt(variances[:, idx]), fmt='o', capsize=5)
             axes.set_ylabel(param_name)
             fig.legend()
+            plt.tight_layout()
             fig.savefig("model_param_{}.pdf".format(param_name))
             plt.show()
 
@@ -706,8 +659,8 @@ class KalmanFilter:
         # fig.savefig("clustermap.pdf")
         # plt.show()
     @staticmethod
-    def plot_measurements(times, measurements, noisy_measurements, pred_loc_measurements, pred_loc_measurements_variances, measurements_data_name, title_prefix):
-        n_measurements = noisy_measurements.shape[1]
+    def plot_measurements(times, measurements, noisy_measurements, pred_loc_measurements=None, label="", title_prefix=""):
+        #n_measurements = noisy_measurements.shape[1]
 
         import matplotlib
         from matplotlib import ticker
@@ -715,32 +668,32 @@ class KalmanFilter:
         formatter.set_scientific(True)
         matplotlib.rcParams.update({'font.size': 26})
 
-        print("n measurements ", n_measurements)
+        #for i in range(n_measurements):
+        #print("np.sqrt(pred_loc_measurements_variances[:, i]) ", np.sqrt(pred_loc_measurements_variances[:, i]))
+        fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
+        #fig, axes = plt.subplots(1, 1)
+        #axes.scatter(times, pred_loc_measurements[:, i], marker="o", label="predictions")
+        if pred_loc_measurements is not None:
+            axes.scatter(times, pred_loc_measurements, s=15, marker='o', label='UKF predictions')
+        # axes.errorbar(times, pred_loc_measurements[:, i], ms=5, yerr=np.sqrt(pred_loc_measurements_variances[:, i]), fmt='o', capsize=5,
+        #               label='UKF predictions')
+        if len(measurements) > 0:
+            axes.scatter(times, measurements, s=15, marker='x', label="measurements")
 
-        for i in range(n_measurements):
-            #print("np.sqrt(pred_loc_measurements_variances[:, i]) ", np.sqrt(pred_loc_measurements_variances[:, i]))
-            fig, axes = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
-            #fig, axes = plt.subplots(1, 1)
-            #axes.scatter(times, pred_loc_measurements[:, i], marker="o", label="predictions")
-            axes.scatter(times, pred_loc_measurements[:, i], s=15, marker='o', label='UKF predictions')
-            # axes.errorbar(times, pred_loc_measurements[:, i], ms=5, yerr=np.sqrt(pred_loc_measurements_variances[:, i]), fmt='o', capsize=5,
-            #               label='UKF predictions')
-            if len(measurements) > 0:
-                axes.scatter(times, measurements[:, i], s=15, marker='x', label="measurements")
+        axes.scatter(times, noisy_measurements, s=15, marker='x', label="noisy measurements")
+        axes.set_xlabel("time[h]")
+        axes.set_ylabel(label)
+        fig.legend()
+        plt.tight_layout()
+        fig.savefig(title_prefix + ".pdf".format(title_prefix))
+        plt.show()
 
-            axes.scatter(times, noisy_measurements[:, i], s=15, marker='x', label="noisy measurements")
-            axes.set_xlabel("time[h]")
-            axes.set_ylabel(measurements_data_name)
-            fig.legend()
-            fig.savefig(title_prefix + "time_{}_loc_{}.pdf".format(measurements_data_name, i))
-            plt.show()
-
-    def plot_results(self, pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test,  pred_model_params, measurements, noisy_measurements, measurements_data_name="pressure", ukf_p_var_iter=None):
-        print("state_loc_measurements ", pred_loc_measurements)
-        print("noisy_measurements ", noisy_measurements)
-
-        print("ukf_p_var_iter.shape ", ukf_p_var_iter.shape)
-        print("pred model params shape ", np.array(pred_model_params).shape)
+    def plot_results(self, pred_loc_measurements, test_pred_loc_measurements, measurements_to_test, noisy_measurements_to_test,  pred_model_params, measurements, noisy_measurements, measurements_config, ukf_p_var_iter=None):
+        # print("state_loc_measurements ", pred_loc_measurements)
+        # print("noisy_measurements ", noisy_measurements)
+        #
+        # print("ukf_p_var_iter.shape ", ukf_p_var_iter.shape)
+        # print("pred model params shape ", np.array(pred_model_params).shape)
 
         model_params_variances = None
         pred_loc_measurements_variances = []
@@ -748,34 +701,34 @@ class KalmanFilter:
         if ukf_p_var_iter is not None:
             if len(pred_model_params)> 0:
                 model_params_variances = ukf_p_var_iter[:, -len(pred_model_params[0]):]
-                print("model params variances ", model_params_variances)
+                #print("model params variances ", model_params_variances)
 
-            pred_loc_measurements_variances = ukf_p_var_iter[:, -self.additional_data_len: -self.additional_data_len + len(
-                self.kalman_config["mes_locations_train"])]
+            # pred_loc_measurements_variances = ukf_p_var_iter[:, -self.additional_data_len: -self.additional_data_len + len(
+            #     self.kalman_config["mes_locations_train"])]
 
-            if self.additional_data_len == len(self.kalman_config["mes_locations_train"]) + len(
-                    self.kalman_config["mes_locations_test"]):
-                test_pred_loc_measurements_variances = ukf_p_var_iter[:,
-                                    -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):]
-            else:
-                test_pred_loc_measurements_variances = ukf_p_var_iter[:,
-                                    -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):
-                                    -self.additional_data_len + len(self.kalman_config["mes_locations_train"])
-                                    + len(self.kalman_config["mes_locations_test"])]
+            # if self.additional_data_len == len(self.kalman_config["mes_locations_train"]) + len(
+            #         self.kalman_config["mes_locations_test"]):
+            #     test_pred_loc_measurements_variances = ukf_p_var_iter[:,
+            #                         -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):]
+            # else:
+            #     test_pred_loc_measurements_variances = ukf_p_var_iter[:,
+            #                         -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):
+            #                         -self.additional_data_len + len(self.kalman_config["mes_locations_train"])
+            #                         + len(self.kalman_config["mes_locations_test"])]
 
-            print("pred_loc_measurements_variances shape ", pred_loc_measurements_variances.shape)
-            print("test_pred_loc_measurements_variances shape ", test_pred_loc_measurements_variances.shape)
+            #print("pred_loc_measurements_variances shape ", pred_loc_measurements_variances.shape)
+            #print("test_pred_loc_measurements_variances shape ", test_pred_loc_measurements_variances.shape)
 
 
         times = np.arange(1, pred_loc_measurements.shape[0] + 1, 1)
 
-        print("times.shape ", times.shape)
-        print("xs[:, 0].shape ", pred_loc_measurements[:, 0].shape)
+        # print("times.shape ", times.shape)
+        # print("xs[:, 0].shape ", pred_loc_measurements[:, 0].shape)
 
         np.save(self.work_dir / "times", times)
         np.save(self.work_dir / "model_params_variances", model_params_variances)
-        np.save(self.work_dir / "pred_loc_measurements_variances", pred_loc_measurements_variances)
-        np.save(self.work_dir / "test_pred_loc_measurements_variances", test_pred_loc_measurements_variances)
+        #np.save(self.work_dir / "pred_loc_measurements_variances", pred_loc_measurements_variances)
+        #np.save(self.work_dir / "test_pred_loc_measurements_variances", test_pred_loc_measurements_variances)
 
         # plt.scatter(times, pred_loc_measurements[:, 0], marker="o", label="predictions")
         # plt.scatter(times, measurements[:, 0], marker='x',  label="measurements")
@@ -793,10 +746,26 @@ class KalmanFilter:
             KalmanFilter.plot_model_params(np.array(pred_model_params), times, model_params_variances, self.model_config)
 
         if self.kalman_config["plot"]:
-            KalmanFilter.plot_measurements(times, measurements, noisy_measurements, pred_loc_measurements,
-                                   pred_loc_measurements_variances, measurements_data_name,  title_prefix="train_")
-            KalmanFilter.plot_measurements(times, measurements_to_test, noisy_measurements_to_test, test_pred_loc_measurements,
-                                   test_pred_loc_measurements_variances, measurements_data_name, title_prefix="test_")
+            measurements_format = []
+            measurements_format_test = []
+            measurements_train_loc = []
+            measurements_test_loc = []
+            for name, m_data in measurements_config.items():
+                measurements_format.extend([name] * len(m_data["train_loc"]))
+                measurements_format_test.extend([name] * len(m_data["test_loc"]))
+                measurements_train_loc.extend(m_data["train_loc"])
+                measurements_test_loc.extend(m_data["test_loc"])
+
+            for i in range(measurements.shape[1]):
+                label = "{} loc: {}".format(measurements_format[i], measurements_train_loc[i])
+
+                KalmanFilter.plot_measurements(times, measurements[:, i], noisy_measurements[:, i], pred_loc_measurements[:, i],
+                                       label,  title_prefix="train_{}_".format(label))
+
+            for i in range(measurements_to_test.shape[1]):
+                label = "{} loc: {}".format(measurements_format_test[i], measurements_test_loc[i])
+                KalmanFilter.plot_measurements(times, measurements_to_test[:, i], noisy_measurements_to_test[:, i], test_pred_loc_measurements[:, i],
+                                  label, title_prefix="test_{}_".format(label))
 
         if len(measurements) > 0:
             for i in range(measurements.shape[1]):
@@ -824,8 +793,6 @@ class KalmanFilter:
         print("len additional data ", self.additional_data_len)
 
         for state_data, pred_state_data  in zip(state_data_iters, pred_state_data_iter):
-            print("len state data ", len(state_data))
-            print("len pred state data ", len(pred_state_data))
             len(self.kalman_config["mes_locations_train"]) + len(self.kalman_config["mes_locations_test"]) + len(
                 self.model_config["params"]["names"])
 
@@ -834,13 +801,6 @@ class KalmanFilter:
 
             pressure_data = state_data[:-self.additional_data_len]
             pred_pressure_data = pred_state_data[:-self.additional_data_len]
-            print("len pressure data ", len(pressure_data))
-
-            print("pressure data ", pressure_data)
-            print("pred pressure data ", pred_pressure_data)
-
-            print("len pressure data ", len(pressure_data))
-            print("len pred pressure data ", len(pred_pressure_data))
 
             iter_mse_pressure_data.append(np.linalg.norm(pressure_data - pred_pressure_data))
 
@@ -871,7 +831,6 @@ class KalmanFilter:
                     l2_norm = np.linalg.norm(state_data[-len(self.model_config["params"]["names"]) + idx] - pred_state_data[-len(self.model_config["params"]["names"]) + idx])
 
                     iter_mse_model_config_data.setdefault(param_name, []).append(l2_norm)
-
 
         print("iter_mse_pressure_data ", iter_mse_pressure_data)
         print("iter_mse_train_measurements ", iter_mse_train_measurements)
@@ -922,14 +881,7 @@ class KalmanFilter:
     def plot_pressure_from_state_data(model, state_data_iter, additional_data_len):
         state_data_iter = np.array(state_data_iter)
         pressure = state_data_iter[:, :-additional_data_len]
-
-        print("PRESSURE ", pressure.shape)
-
         model.plot_pressure(pressure)
-
-
-
-        # settings.set_working_directory(cwd)
 
 
 if __name__ == "__main__":
