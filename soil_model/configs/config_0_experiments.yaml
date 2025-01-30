@@ -1,7 +1,7 @@
 seed: 123456
 model_config:
   model_class_name: "ToyProblem"
-  PARFLOW_DIR: "../../../surface_model/parflow_reference/parflow"  
+  PARFLOW_DIR: "../../../surface_model/parflow_reference/parflow"
   params:
       "ComputationalGrid.Lower.X": [0.0, 0]
       "ComputationalGrid.Lower.Y": [0.0, 0]
@@ -50,15 +50,22 @@ model_config:
       - 0.35
       - 6
 kalman_config:
-  measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
-  mes_locations_train: 
-    - 0.5
-    - 1.5
+  measurements:
+    saturation:
+      train_loc: [0.5, 1.5]
+      test_loc:  [1, 2]
+    pressure:
+      train_loc: [1]
+      test_loc:  [2, 2.5]
+  #measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
+  #mes_locations_train:
+  #  - 0.5
+  #  - 1.5
     #- 2.5
     #- 3.5
-  mes_locations_test: 
-    - 1
-    - 2
+  #mes_locations_test:
+  #  - 1
+  #  - 2
   measurements_noise_level: 0.05
   noise_distr_type: uniform #gaussian
   model_params_noise_level: 0.1
