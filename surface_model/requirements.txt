@@ -7,12 +7,12 @@ pandas
 filterpy
 seaborn
 pftools[all]
-
-#joblib
-#seaborn
-#scikit-learn
+joblib
 matplotlib
 plotly
+
+#seaborn
+#scikit-learn
 #ipykernel
 #reportlab
 #weasyprint

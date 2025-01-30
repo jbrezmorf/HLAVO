@@ -86,6 +86,13 @@ def set_nested_attr(obj, attr, value):
     pre, _, post = attr.rpartition('.')
     return setattr(get_nested_attr(obj, pre) if pre else obj, post, value)
 
+def set_nested_attrs(obj, dict):
+    """
+    Use all keys of given dict to set nested attributes.
+    """
+    for key, val in dict.items():
+        set_nested_attr(obj, key, val)
+
 
 def add_noise(data_array, noise_level=0.1, std=None, distr_type="uniform", seed=12345):
     if len(data_array) > 0:

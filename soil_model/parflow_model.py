@@ -1,5 +1,6 @@
 # Sample problem for Richards equation solved by PARFLOW
 #(requires "pftools" Python package provided via pip)
+import logging
 
 from parflow import Run
 from parflow.tools import settings
@@ -9,7 +10,7 @@ import numpy as np
 import os, pathlib
 from matplotlib import pyplot as plt
 from abstract_model import AbstractModel
-from auxiliary_functions import sqrt_func, set_nested_attr, get_nested_attr, add_noise
+from auxiliary_functions import sqrt_func, set_nested_attr, get_nested_attr, add_noise, set_nested_attrs
 
 
 class ToyProblem(AbstractModel):
@@ -18,20 +19,37 @@ class ToyProblem(AbstractModel):
         self._run = Run("toy_richards", __file__)
         if workdir is not None:
             self._workdir = pathlib.Path(workdir)
-            pathlib.Path.mkdir(self._workdir, exist_ok=True)
+            pathlib.Path.mkdir(self._workdir, exist_ok=True, parents=True)
         else:
             self._workdir = pathlib.Path.cwd()
 
         self.setup_config(config["static_params"])
-
+        self.key_to_parflow_param = config["params"]
         # Check PARFLOW installation
-        if "PARFLOW_DIR" in config:
-            os.environ['PARFLOW_DIR'] = str((self._workdir / config["PARFLOW_DIR"]).absolute())
         parflow_dir = os.environ.get('PARFLOW_DIR', None)
         assert parflow_dir is not None, "The PARFLOW_DIR environment variable is not set."
         parflow_path = pathlib.Path(parflow_dir)
         # Check if the directory exists
         assert parflow_path.is_dir(), f"The PARFLOW_DIR environment variable is set, but the directory does not exist: {parflow_path}"
+
+    @property
+    def data_z(self):
+        """
+        Center points of finite volumes.
+        :return:
+        """
+        nz = self._run.ComputationalGrid.NZ
+        dz = self._run.ComputationalGrid.DZ
+        return (self._run.ComputationalGrid.Lower.Z + dz/2 +
+                np.linspace(0.0, nz * dz, nz))
+
+    def make_linear_pressure(self, cfg):
+        p_top, p_bot = cfg['init_pressure']
+        nz = self._run.ComputationalGrid.NZ
+        # dz = self._run.ComputationalGrid.DZ
+        zz = np.linspace(p_top, p_bot, nz)
+        return zz
+
 
     def setup_config(self, static_params_dict={}):
         #-----------------------------------------------------------------------------
@@ -49,34 +67,16 @@ class ToyProblem(AbstractModel):
         #-----------------------------------------------------------------------------
         # Computational Grid
         #-----------------------------------------------------------------------------
-        # self._run.ComputationalGrid.Lower.X = 0.0
-        # self._run.ComputationalGrid.Lower.Y = 0.0
-        # self._run.ComputationalGrid.Lower.Z = -10.0
-        #
-        # self._run.ComputationalGrid.DX = 1.
-        # self._run.ComputationalGrid.DY = 1.
-        # self._run.ComputationalGrid.DZ = 0.5
-        #
-        # self._run.ComputationalGrid.NX = 1
-        # self._run.ComputationalGrid.NY = 1
-        # self._run.ComputationalGrid.NZ = 20
 
         # Set the physical size of the domain in meters
-        ##self._run.ComputationalGrid.LX = 0.2  # Length of domain in x-direction (m)
-        ##self._run.ComputationalGrid.LY = 0.2  # Length of domain in y-direction (m)
-        ##self._run.ComputationalGrid.LZ = 1.2  # Length of domain in z-direction (m)
-        self._run.ComputationalGrid.Lower.X = static_params_dict["ComputationalGrid.Lower.X"] if "ComputationalGrid.Lower.X" in static_params_dict else 0.0
-        self._run.ComputationalGrid.Lower.Y = static_params_dict["ComputationalGrid.Lower.Y"] if "ComputationalGrid.Lower.Y" in static_params_dict else 0.0
-        self._run.ComputationalGrid.Lower.Z = static_params_dict["ComputationalGrid.Lower.Z"] if "ComputationalGrid.Lower.Z" in static_params_dict else -1.2
-
-        self._run.ComputationalGrid.DX = static_params_dict["ComputationalGrid.DX"] if "ComputationalGrid.DX" in static_params_dict else 0.2
-        self._run.ComputationalGrid.DY = static_params_dict["ComputationalGrid.DY"] if "ComputationalGrid.DY" in static_params_dict else 0.2
-        self._run.ComputationalGrid.DZ = static_params_dict["ComputationalGrid.DZ"] if "ComputationalGrid.DZ" in static_params_dict else 0.05
-
-        self._run.ComputationalGrid.NX = static_params_dict["ComputationalGrid.NX"] if "ComputationalGrid.NX" in static_params_dict else 1 # Number of grid cells in x-direction
-        self._run.ComputationalGrid.NY = static_params_dict["ComputationalGrid.NY"] if "ComputationalGrid.NY" in static_params_dict else 1 # Number of grid cells in y-direction
-        self._run.ComputationalGrid.NZ = static_params_dict["ComputationalGrid.NZ"] if "ComputationalGrid.NZ" in static_params_dict else 24 # Number of grid cells in z-direction
-
+        obj = self._run.ComputationalGrid
+        fixed = {
+            "Lower.X":0.0, "DX": 1, "NX":1,
+            "Lower.Y": 0.0, "DY": 1, "NY": 1}
+        set_nested_attrs(obj, fixed)
+        z_grid_dict = {("ComputationalGrid." + k):static_params_dict["ComputationalGrid"][k]
+                       for k in ["Lower.Z", "DZ", "NZ"]}
+        set_nested_attrs(self._run, z_grid_dict)
         #-----------------------------------------------------------------------------
         # The Names of the GeomInputs
         #-----------------------------------------------------------------------------
@@ -90,22 +90,14 @@ class ToyProblem(AbstractModel):
         #-----------------------------------------------------------------------------
         # Domain Geometry
         #-----------------------------------------------------------------------------
-        # self._run.Geom.domain.Lower.X = 0.0
-        # self._run.Geom.domain.Lower.Y = 0.0
-        # self._run.Geom.domain.Lower.Z = -10.0
-        #
-        # self._run.Geom.domain.Upper.X = 1.0
-        # self._run.Geom.domain.Upper.Y = 1.0
-        # self._run.Geom.domain.Upper.Z = 0.0
-
-        self._run.Geom.domain.Lower.X = static_params_dict["Geom.domain.Lower.X"] if "Geom.domain.Lower.X" in static_params_dict else 0.0
-        self._run.Geom.domain.Lower.Y = static_params_dict["Geom.domain.Lower.Y"] if "Geom.domain.Lower.Y" in static_params_dict else 0.0
-        self._run.Geom.domain.Lower.Z = static_params_dict["Geom.domain.Lower.Z"] if "Geom.domain.Lower.Z" in static_params_dict else -1.2
-
-        self._run.Geom.domain.Upper.X = static_params_dict["Geom.domain.Upper.X"] if "Geom.domain.Upper.X" in static_params_dict else .25
-        self._run.Geom.domain.Upper.Y = static_params_dict["Geom.domain.Upper.X"] if "Geom.domain.Upper.X" in static_params_dict else .25
-        self._run.Geom.domain.Upper.Z = static_params_dict["Geom.domain.Upper.X"] if "Geom.domain.Upper.X" in static_params_dict else 0.0
-
+        low_z = self._run.ComputationalGrid.Lower.Z
+        up_z = low_z  + self._run.ComputationalGrid.DZ * self._run.ComputationalGrid.NZ
+        domain_dict = {
+            "Lower.X": 0.0, "Upper.X": 1.0,
+            "Lower.Y": 0.0, "Upper.Y": 1.0,
+            "Lower.Z": low_z, "Upper.Z": up_z,
+        }
+        set_nested_attrs(self._run.Geom.domain, domain_dict)
         self._run.Geom.domain.Patches = "left right front back bottom top"
 
         #-----------------------------------------------------------------------------
@@ -208,7 +200,7 @@ class ToyProblem(AbstractModel):
         self._run.Patch.bottom.BCPressure.Cycle = "constant"
         self._run.Patch.bottom.BCPressure.RefGeom = "domain"
         self._run.Patch.bottom.BCPressure.RefPatch = "bottom"
-        self._run.Patch.bottom.BCPressure.alltime.Value = -2.0
+        self._run.Patch.bottom.BCPressure.alltime.Value = -0.1
 
         #@TODO: use the following
         #self._run.Patch.bottom.BCPressure.Type = "FluxConst"
@@ -306,21 +298,22 @@ class ToyProblem(AbstractModel):
 
         # === End Other required and unused parameters ===
 
-    def set_init_pressure(self, init_p=None):
+    def set_init_pressure(self, init_p):
         # example of setting custom initial pressure
         nz = self._run.ComputationalGrid.NZ
         dz = self._run.ComputationalGrid.DZ
         zz = np.linspace(0,-(nz-1)*dz,nz)
 
-        if init_p is None:
-            init_p = np.zeros((nz,1,1))
-            init_p[:, 0, 0] = zz-2
+        # if init_p is None:
+        #     init_p = np.zeros((nz,1,1))
+        #     init_p[:, 0, 0] = zz-2
 
         # print("init_p.shape ", init_p.shape)
         #
 
         filename = "toy_richards.init_pressure.pfb"
         filepath = self._workdir / pathlib.Path(filename)
+        init_p = init_p[:, None, None]
         write_pfb(str(filepath), init_p)
 
         self._run.ICPressure.Type = "PFBFile"
@@ -342,13 +335,14 @@ class ToyProblem(AbstractModel):
         self._run.Geom.domain.Porosity.Type = "PFBFile"
         self._run.Geom.domain.Porosity.FileName = filename
 
-    def run(self, init_pressure, precipitation_value, model_params, stop_time):
+    def run(self, init_pressure, precipitation_value, state_params, start_time, stop_time):
 
-        self.set_dynamic_params(model_params)
+        self.set_dynamic_params(state_params)
 
         self._run.Patch.top.BCPressure.alltime.Value = precipitation_value
         self.set_init_pressure(init_pressure)
 
+        self._run.TimingInfo.StartTime = start_time
         self._run.TimingInfo.StopTime = stop_time
         self._run.run(working_directory=self._workdir)
         self._run.write(file_format='yaml')
@@ -360,9 +354,9 @@ class ToyProblem(AbstractModel):
         data.time = current_time
 
         if data_name == "pressure":
-            return data.pressure
+            return data.pressure[:, 0, 0]
         elif data_name == "saturation":
-            return data.saturation
+            return data.saturation[:, 0, 0]
         else:
             raise NotImplemented("This method returns 'pressure' or 'saturation' only")
 
@@ -409,8 +403,17 @@ class ToyProblem(AbstractModel):
     #     settings.set_working_directory(cwd)
 
     def set_dynamic_params(self, model_params):
-        model_params_new_values = []
-        for params, (mean, std) in model_params.items():
+
+        #model_params_new_values = []
+        for key, val in model_params.items():
+            if not key in self.key_to_parflow_param:
+                continue
+            targets = self.key_to_parflow_param[key]
+            if isinstance(targets, str):
+                targets = [targets]
+            for target in targets:
+                set_nested_attr(self._run, target, model_params[key])
+
             #print("params: {}, mean: {}, std: {}".format(params, mean, std))
 
             # if params == "Patch.top.BCPressure.alltime.Value":
@@ -424,17 +427,16 @@ class ToyProblem(AbstractModel):
             #     #               distr_type=kalman_config["noise_distr_type"],
             #     #               std=model_config["params"]["std"][idx])
             #     value += et_per_time
-            set_nested_attr(self._run, params, mean)
 
-            if params == "Geom.domain.Saturation.Alpha":
-                set_nested_attr(self._run, "Geom.domain.RelPerm.Alpha", mean)
+            # if params == "Geom.domain.Saturation.Alpha":
+            #     set_nested_attr(self._run, "Geom.domain.RelPerm.Alpha", mean)
+            #
+            # if params == "Geom.domain.Saturation.N":
+            #     set_nested_attr(self._run, "Geom.domain.RelPerm.N", mean)
 
-            if params == "Geom.domain.Saturation.N":
-                set_nested_attr(self._run, "Geom.domain.RelPerm.N", mean)
+            #model_params_new_values.append(mean)
 
-            model_params_new_values.append(mean)
-
-        return model_params_new_values
+        #return model_params_new_values
 
     def save_pressure(self, image_file):
         cwd = settings.get_working_directory()
@@ -531,13 +533,13 @@ class ToyProblem(AbstractModel):
         # print("np.cumsum(data.dz)[1::nzticks] ", np.cumsum(data.dz)[1::nzticks])
         # print("nzticks ", nzticks)
         # plt.xticks(np.arange(nz)[1::nzticks], np.cumsum(data.dz)[1::nzticks] )
-        plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
+        #plt.xticks(list(np.arange(nz)[1::nzticks]), list(np.cumsum(data.dz)[1::nzticks]))
         #plt.xticks(np.arange(nz)[1::nzticks], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2])
         plt.colorbar()
         plt.title("pressure")
         plt.xlabel("depth [m]")
         plt.ylabel("time [h]")
-        # plt.savefig(image_file)
+        plt.savefig("ref_pressure.pdf")
         plt.show()
 
 
