@@ -32,10 +32,10 @@ class ToyProblem(AbstractModel):
         # Check if the directory exists
         assert parflow_path.is_dir(), f"The PARFLOW_DIR environment variable is set, but the directory does not exist: {parflow_path}"
 
-    @property
-    def data_z(self):
+    def get_nodes_z(self):
         """
         Center points of finite volumes.
+        Bottom are first.
         :return:
         """
         nz = self._run.ComputationalGrid.NZ
@@ -299,17 +299,7 @@ class ToyProblem(AbstractModel):
         # === End Other required and unused parameters ===
 
     def set_init_pressure(self, init_p):
-        # example of setting custom initial pressure
-        nz = self._run.ComputationalGrid.NZ
-        dz = self._run.ComputationalGrid.DZ
-        zz = np.linspace(0,-(nz-1)*dz,nz)
-
-        # if init_p is None:
-        #     init_p = np.zeros((nz,1,1))
-        #     init_p[:, 0, 0] = zz-2
-
-        # print("init_p.shape ", init_p.shape)
-        #
+        # setting custom initial pressure
 
         filename = "toy_richards.init_pressure.pfb"
         filepath = self._workdir / pathlib.Path(filename)
@@ -363,8 +353,8 @@ class ToyProblem(AbstractModel):
     def get_times(self):
         return self._run.data_accessor.times
 
-    def get_space_step(self):
-        return self._run.ComputationalGrid.DZ
+    # def get_space_step(self):
+    #     return self._run.ComputationalGrid.DZ
 
     def load_yaml(self, yaml_file):
         ## Create a Run object from a .yaml file

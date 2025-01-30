@@ -16,7 +16,7 @@ class AbstractModel(ABC):
     def run(self, init_pressure: np.ndarray,  precipitation_value: float, model_params: dict, stop_time: float):
         """
         Run the model with initial pressure profile up to stop_time.
-        :param init_pressure: np.ndarray
+        :param init_pressure: np.ndarray, must agree with get_node_z
         :param precipitation_value: TODO: move under model_params
         :param model_params: TODO: should be dict of fixed values not distribution spec.
         :param stop_time:
@@ -26,6 +26,12 @@ class AbstractModel(ABC):
 
     @abstractmethod
     def get_data(self, time: float, data_name: str ="pressure") -> np.ndarray:
+        """
+        Get "pressure" or "saturation" vector for given time. Must agree with get_nodes_z.
+        :param time:
+        :param data_name:
+        :return:
+        """
         pass
 
     @abstractmethod
@@ -33,9 +39,15 @@ class AbstractModel(ABC):
         pass
 
     @abstractmethod
-    def get_space_step(self) -> float:
+    def get_nodes_z(self) -> float:
+        """
+        Return the Z coordinates of the data points.
+        Must agree with nodes.
+        :return:
+        """
         pass
 
     @abstractmethod
     def plot_pressure(self):
+        # Deprecated. Use kalman_result plotting or RichardsSolverOutput plotting.
         pass
