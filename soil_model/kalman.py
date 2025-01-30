@@ -128,20 +128,20 @@ class KalmanFilter:
             raise NotImplemented("Import desired class")
         return model_class(self.model_config, workdir=self.work_dir / "output-toy")
 
-    def plot_pressure(self):
-        """
-        MS TODO: Not used can remove? See KalmanResults.plot_pressure
-        """
-        model = self._make_model()
-        et_per_time = 0 #ET0(**dict(zip(self.model_config['evapotranspiration_params']["names"], self.model_config['evapotranspiration_params']["values"]))) / 1000 / 24  # mm/day to m/sec
-        #model._run.Patch.top.BCPressure.alltime.Value = self.model_config["precipitation_list"][0] + et_per_time
-        model.set_dynamic_params(self.model_config["params"]["names"], self.model_config["params"]["values"])
-
-        model.run(init_pressure=None, precipitation_value=self.model_config["precipitation_list"][0] + et_per_time,
-                  stop_time=self.model_config['rain_periods'][0][0])
-
-        # model.save_pressure("pressure.png")
-        #model.save_pressure("pressure.png")
+    # def plot_pressure(self):
+    #     """
+    #     MS TODO: Not used can remove? See KalmanResults.plot_pressure
+    #     """
+    #     model = self._make_model()
+    #     et_per_time = 0 #ET0(**dict(zip(self.model_config['evapotranspiration_params']["names"], self.model_config['evapotranspiration_params']["values"]))) / 1000 / 24  # mm/day to m/sec
+    #     #model._run.Patch.top.BCPressure.alltime.Value = self.model_config["precipitation_list"][0] + et_per_time
+    #     model.set_dynamic_params(self.model_config["params"]["names"], self.model_config["params"]["values"])
+    #
+    #     model.run(init_pressure=None, precipitation_value=self.model_config["precipitation_list"][0] + et_per_time,
+    #               stop_time=self.model_config['rain_periods'][0][0])
+    #
+    #     # model.save_pressure("pressure.png")
+    #     #model.save_pressure("pressure.png")
 
     def run(self):
         #############################
@@ -156,9 +156,6 @@ class KalmanFilter:
 
             sample_variance = np.var(noisy_measurements, axis=0)
             measurement_noise_covariance = np.diag(sample_variance)
-
-            measurements_to_test = []
-            measurements = []
         else:
             measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, \
             state_data_iters = self.generate_measurements(self.kalman_config["measurements_data_name"])
@@ -225,7 +222,6 @@ class KalmanFilter:
         ref_params['pressure_field'] = pressure_vec
         # JB TODO: finish GField.ref to simplify the following lines
         state_vec = self.state_struc.encode_state(ref_params)
-        params_vec = state_vec[len(pressure_vec):]
 
         for i in range(0, len(self.model_config["precipitation_list"])):
             measurement_train, measurement_test, pressure_vec, sat_vec \
@@ -297,12 +293,12 @@ class KalmanFilter:
         new_state_vec = self.state_struc.encode_state(state)
         return new_state_vec
 
-    @staticmethod
-    def get_nonzero_std_params(model_params):
-        print("model params ", model_params)
-        # Filter out items with nonzero std
-        filtered_data = {key: value for key, value in model_params.items() if value[1] != 0}
-        return filtered_data
+    # @staticmethod
+    # def get_nonzero_std_params(model_params):
+    #     print("model params ", model_params)
+    #     # Filter out items with nonzero std
+    #     filtered_data = {key: value for key, value in model_params.items() if value[1] != 0}
+    #     return filtered_data
 
     def measurement_function(self, state_vec, space_indices_type=None):
         state = self.state_struc.decode_state(state_vec)
@@ -414,71 +410,71 @@ class KalmanFilter:
         return self.results
 
 
-
-    def postprocess_data(self, state_data_iters, pred_state_data_iter):
-        iter_mse_pressure_data = []
-        iter_mse_train_measurements = []
-        iter_mse_test_measurements = []
-
-        iter_mse_model_config_data = {}
-
-        print("len additional data ", self.additional_data_len)
-
-        for state_data, pred_state_data  in zip(state_data_iters, pred_state_data_iter):
-            print("len state data ", len(state_data))
-            print("len pred state data ", len(pred_state_data))
-            len(self.kalman_config["mes_locations_train"]) + len(self.kalman_config["mes_locations_test"]) + len(
-                self.model_config["params"]["names"])
-
-            if "flux_eps" in self.model_config:
-                pred_state_data = pred_state_data[:-1]
-
-            pressure_data = state_data[:-self.additional_data_len]
-            pred_pressure_data = pred_state_data[:-self.additional_data_len]
-            print("len pressure data ", len(pressure_data))
-
-            print("pressure data ", pressure_data)
-            print("pred pressure data ", pred_pressure_data)
-
-            print("len pressure data ", len(pressure_data))
-            print("len pred pressure data ", len(pred_pressure_data))
-
-            iter_mse_pressure_data.append(np.linalg.norm(pressure_data - pred_pressure_data))
-
-            train_measurements = state_data[-self.additional_data_len: -self.additional_data_len + len(self.kalman_config["mes_locations_train"])]
-            pred_train_measurements = pred_state_data[-self.additional_data_len: -self.additional_data_len + len(
-                self.kalman_config["mes_locations_train"])]
-
-            iter_mse_train_measurements.append(np.linalg.norm(train_measurements - pred_train_measurements))
-
-            if self.additional_data_len == len(self.kalman_config["mes_locations_train"]) + len(self.kalman_config["mes_locations_test"]):
-                test_measurements = state_data[-self.additional_data_len + len(self.kalman_config["mes_locations_train"]):]
-                pred_test_measurements = pred_state_data[ -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):]
-            else:
-                test_measurements = state_data[
-                                    -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):
-                                    -self.additional_data_len + len(self.kalman_config["mes_locations_train"])
-                                    + len(self.kalman_config["mes_locations_test"])]
-
-                pred_test_measurements = pred_state_data[
-                                         -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):
-                                         -self.additional_data_len + len(self.kalman_config["mes_locations_train"])
-                                         + len(self.kalman_config["mes_locations_test"])]
-
-            iter_mse_test_measurements.append(np.linalg.norm(test_measurements - pred_test_measurements))
-
-            if len(self.model_config["params"]["names"]) > 0:
-                for idx, param_name in enumerate(self.model_config["params"]["names"]):
-                    l2_norm = np.linalg.norm(state_data[-len(self.model_config["params"]["names"]) + idx] - pred_state_data[-len(self.model_config["params"]["names"]) + idx])
-
-                    iter_mse_model_config_data.setdefault(param_name, []).append(l2_norm)
-
-
-        print("iter_mse_pressure_data ", iter_mse_pressure_data)
-        print("iter_mse_train_measurements ", iter_mse_train_measurements)
-        print("iter_mse_test_measurements ", iter_mse_test_measurements)
-        print("iter_mse_model_config_data ", iter_mse_model_config_data)
-
+    #
+    # def postprocess_data(self, state_data_iters, pred_state_data_iter):
+    #     iter_mse_pressure_data = []
+    #     iter_mse_train_measurements = []
+    #     iter_mse_test_measurements = []
+    #
+    #     iter_mse_model_config_data = {}
+    #
+    #     print("len additional data ", self.additional_data_len)
+    #
+    #     for state_data, pred_state_data  in zip(state_data_iters, pred_state_data_iter):
+    #         print("len state data ", len(state_data))
+    #         print("len pred state data ", len(pred_state_data))
+    #         len(self.kalman_config["mes_locations_train"]) + len(self.kalman_config["mes_locations_test"]) + len(
+    #             self.model_config["params"]["names"])
+    #
+    #         if "flux_eps" in self.model_config:
+    #             pred_state_data = pred_state_data[:-1]
+    #
+    #         pressure_data = state_data[:-self.additional_data_len]
+    #         pred_pressure_data = pred_state_data[:-self.additional_data_len]
+    #         print("len pressure data ", len(pressure_data))
+    #
+    #         print("pressure data ", pressure_data)
+    #         print("pred pressure data ", pred_pressure_data)
+    #
+    #         print("len pressure data ", len(pressure_data))
+    #         print("len pred pressure data ", len(pred_pressure_data))
+    #
+    #         iter_mse_pressure_data.append(np.linalg.norm(pressure_data - pred_pressure_data))
+    #
+    #         train_measurements = state_data[-self.additional_data_len: -self.additional_data_len + len(self.kalman_config["mes_locations_train"])]
+    #         pred_train_measurements = pred_state_data[-self.additional_data_len: -self.additional_data_len + len(
+    #             self.kalman_config["mes_locations_train"])]
+    #
+    #         iter_mse_train_measurements.append(np.linalg.norm(train_measurements - pred_train_measurements))
+    #
+    #         if self.additional_data_len == len(self.kalman_config["mes_locations_train"]) + len(self.kalman_config["mes_locations_test"]):
+    #             test_measurements = state_data[-self.additional_data_len + len(self.kalman_config["mes_locations_train"]):]
+    #             pred_test_measurements = pred_state_data[ -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):]
+    #         else:
+    #             test_measurements = state_data[
+    #                                 -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):
+    #                                 -self.additional_data_len + len(self.kalman_config["mes_locations_train"])
+    #                                 + len(self.kalman_config["mes_locations_test"])]
+    #
+    #             pred_test_measurements = pred_state_data[
+    #                                      -self.additional_data_len + len(self.kalman_config["mes_locations_train"]):
+    #                                      -self.additional_data_len + len(self.kalman_config["mes_locations_train"])
+    #                                      + len(self.kalman_config["mes_locations_test"])]
+    #
+    #         iter_mse_test_measurements.append(np.linalg.norm(test_measurements - pred_test_measurements))
+    #
+    #         if len(self.model_config["params"]["names"]) > 0:
+    #             for idx, param_name in enumerate(self.model_config["params"]["names"]):
+    #                 l2_norm = np.linalg.norm(state_data[-len(self.model_config["params"]["names"]) + idx] - pred_state_data[-len(self.model_config["params"]["names"]) + idx])
+    #
+    #                 iter_mse_model_config_data.setdefault(param_name, []).append(l2_norm)
+    #
+    #
+    #     print("iter_mse_pressure_data ", iter_mse_pressure_data)
+    #     print("iter_mse_train_measurements ", iter_mse_train_measurements)
+    #     print("iter_mse_test_measurements ", iter_mse_test_measurements)
+    #     print("iter_mse_model_config_data ", iter_mse_model_config_data)
+    #
 
 
 
