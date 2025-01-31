@@ -30,11 +30,48 @@ Parameters for the synthetic measurements:
 - Ks=0.0737 cm/min
 
 TODO:
-- add support for test velocity
-- model parameters syntax:
-  value (fixed no variance)
-  [value1, value2, N95] (normal, 95 percent interval)
-  [value1, value2, LN95] (lognormal, 95 percent interval)
+Goals:
+- able to combine pressure, saturation, velocity train/test measurements
+  case: 1D, 5m, 4 moisture sensors, 2 moisture 3 pressure 1 velocity tests
+
+- move measurement cache to abstract problem, add all model inputs as
+  pressure profile, weak bc conditions, vG parameters (constant for near future) 
+- we want to build a database to form a surrogate model
+
+- arbitraty timestepping in both Kalman and Richards models
+  case: realistic conductivity and other parameters, still short period
+- count number of model evaluations, monitor total model time, 
+  get time of whole calculation
+
+
+- parallelization, own model implementation
+- real weather data, top BC (deterministic)
+- 150 day UKF applied to synthetic measurement with real waether data, 
+  full set of vG and measurement parameters; very low process and measurement noise 
+- same for laboratory data one month
+
+ 
+- merge soil model to surface model
+- plot P matrix in more time steps
+- fix the plot it shows nearly independent values of the pressure vector, but 
+  they should be rather correlated
+- alternative P plot for pressure profile, eigenvec decomposition:
+  plot eigen values + profiles of eigne vectors for the first 10 components
+- model is overconfident possibly due to very small Q
+- Ks and rain are a bit unrealistic, but that is porblem of time scale, we need
+  a way to set timestepping independently
+
+- MS: remove measurements from state, save them in ToyProblem to a dict
+  with state as a key and measurement as a value
+  - MS: add support for test velocity
+  ===
+  Process noise:
+  pressure: C dh/dt = model + err
+  integrating h(t+dt) = h(t) + dt/C*model + dt/C * err
+  E (H - h_m)^2
+- allow arbitrary rain (flux) input
+- Fix time unit to hours. 
+
 - "synthetic_data_params" 
   updates the params dict, nonfixed will be fixed to 
   mean
@@ -53,3 +90,26 @@ Questions:
 - How Kalman time step affects convergence, how to choose it?
   How the simulation time compares to the Kalman processing time?
   Simpler Q choice is justifable for small time steps.
+
+Future:
+Acceleration:
+- Own implementation.
+- Use a dynamicaly build surogate model to predict sigmapoints
+  with low weight. The simplest lienar model would be enough for
+  the components that has contribution below the process noise.
+  (has to be precised - we must project Q matrix to the eigen vectors to
+   get the process noise)
+- Process noise:
+  - General approach:
+    Input state -> result state
+    with noise introduced to specific place of the model,
+    i.e. parameters not modeled
+    Q is nonlinear function of input state, but we 
+    use an awerage in the KAlman just to have idea about actual 
+    noise level of the model. 
+  - We can bulild a hierarchy of models of different complexity
+    can use precise models for most important components and 
+    low fidelity models for less important components.
+  - It could be viewed as having small number of components
+    for constructing P  with precise model, but having nonlineear
+    Q[x] predicted by the low fidelity model.

@@ -377,7 +377,7 @@ class KalmanFilter:
         pred_state_iter = []
         ukf_p_var_iter = []
 
-        model_dynamic_params = KalmanFilter.get_nonzero_std_params(self.model_config["params"])
+        #model_dynamic_params = KalmanFilter.get_nonzero_std_params(self.model_config["params"])
         print("noisy_meaesurements ", noisy_measurements)
         # Loop through measurements at each time step
         for time_step, measurement in enumerate(noisy_measurements):
@@ -391,21 +391,21 @@ class KalmanFilter:
             self.results.measuremnt_in.append(measurement)
 
 
-            pred_state_iter.append(ukf.x)
-            ukf_p_var_iter.append(np.diag(ukf.P))
+            #pred_state_iter.append(ukf.x)
+            #ukf_p_var_iter.append(np.diag(ukf.P))
 
-            if len(model_dynamic_params) > 0:
-                model_params_data = ukf.x[-len(model_dynamic_params):]
-                pred_model_params.append(model_params_data)
+            # if len(model_dynamic_params) > 0:
+            #     model_params_data = ukf.x[-len(model_dynamic_params):]
+            #     pred_model_params.append(model_params_data)
 
-            est_loc_measurements = self.measurement_function(ukf.x, space_indices_type="train")
-            print("noisy measurement ", measurement)
-            print("est loc measurements ", est_loc_measurements)
-
-            test_est_loc_measurements =self.measurement_function(ukf.x, space_indices_type="test")
-
-            pred_loc_measurements.append(est_loc_measurements)
-            test_pred_loc_measurements.append(test_est_loc_measurements)
+            # est_loc_measurements = self.measurement_function(ukf.x, space_indices_type="train")
+            # print("noisy measurement ", measurement)
+            # print("est loc measurements ", est_loc_measurements)
+            #
+            # test_est_loc_measurements =self.measurement_function(ukf.x, space_indices_type="test")
+            #
+            # pred_loc_measurements.append(est_loc_measurements)
+            # test_pred_loc_measurements.append(test_est_loc_measurements)
 
         return self.results
 
@@ -478,7 +478,7 @@ class KalmanFilter:
 
 
 
-#@memory.cache
+@memory.cache
 def run_kalman(workdir, cfg_file):
     kalman_filter = KalmanFilter.from_config(Path(workdir), Path(cfg_file).resolve(), verbose=False)
     return kalman_filter.run()

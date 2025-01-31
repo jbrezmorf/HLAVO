@@ -60,7 +60,6 @@ class GVar:
         transform = transforms[data.get('transform', 'identity')]
         return cls(mean, std, data['Q'], data['ref'], transform)
 
-    @property
     def size(self) -> int:
         return 1
 
@@ -132,16 +131,15 @@ class GField:
             cov = FieldCovExponential(**data['cov_exponential'])
         return cls(mean, cov, data.get('ref', None), data['Q'], size)
 
-    @property
     def size(self) -> int:
         return self._size
 
     @property
     def Q_full(self) -> np.ndarray:
-        return np.diag(self.size * [self.Q])
+        return np.diag(self.size() * [self.Q])
 
     def init_state(self, nodes_z):
-        assert len(nodes_z) == self.size
+        assert len(nodes_z) == self.size()
         return self.mean.make(nodes_z), self.cov.make(nodes_z)
 
     def encode(self, value: np.ndarray) -> np.ndarray:
@@ -164,20 +162,19 @@ class Measure:
         # to simplify implementation
         return cls(data['z_pos'])
 
-    @property
     def size(self) -> int:
         return len(self.z_pos)
 
     @property
     def ref(self) -> np.ndarray:
-        return np.zeros(self.size)
+        return np.zeros(self.size())
 
     @property
     def Q_full(self) -> np.ndarray:
-        return np.diag(self.size * [1e-8])
+        return np.diag(self.size() * [1e-8])
 
     def init_state(self, nodes_z):
-        return np.zeros(self.size), 1e-8 * np.eye(self.size)
+        return np.zeros(self.size()), 1e-8 * np.eye(self.size())
 
     def encode(self, value: np.ndarray) -> np.ndarray:
         return value
@@ -188,7 +185,72 @@ class Measure:
 #############################
 # Dictionary for declaring state structure and properties.
 #############################
-class StateStructure:
+# class StateStructure:
+#     @staticmethod
+#     def _resolve_var_class(key):
+#         if key.endswith('_field'):
+#             return GField
+#         elif key.endswith('_meas'):
+#             return Measure
+#         else:
+#             return GVar
+#
+#     def __init__(self, n_nodes, var_cfg: Dict[str, Dict[str, Any]]):
+#         self.var_dict : Dict[str, Union[GVar, GField,Measure]] = {
+#             key: self._resolve_var_class(key).from_dict(n_nodes, val)
+#             for key, val in var_cfg.items()
+#         }
+#
+#     def __getitem__(self, item):
+#         return self.var_dict[item]
+#
+#     def size(self):
+#         return sum(var.size for var in self.var_dict.values())
+#
+#     def compose_Q(self) -> np.ndarray:
+#         Q_blocks = (var.Q_full for var in self.var_dict.values())
+#         return linalg.block_diag(*Q_blocks)
+#
+#     def compose_ref_dict(self) -> np.ndarray:
+#         ref_dict = {key: var.ref for key, var in  self.var_dict.items()}
+#         return ref_dict
+#
+#     def compose_init_state(self, nodes_z) -> np.ndarray:
+#         mean_list, cov_list = zip(*(var.init_state(nodes_z) for var in  self.var_dict.values()))
+#         mean = np.concatenate(mean_list)
+#         cov = linalg.block_diag(*cov_list)
+#         return mean, cov
+#
+#     def encode_state(self, value_dict):
+#         """
+#         Encodes a dict of GVariable objects into a single 1D state vector.
+#
+#         :param var_dict: Dict of {variable_name: GVariable}
+#         :return: A 1D numpy array representing the concatenation of all variables' fields.
+#         """
+#         # Decide on a consistent order. Here we use the insertion or .values() order.
+#         # You could also sort by name for consistency if needed.
+#         components = [var.encode(value_dict[key]) for key, var in self.var_dict.items()]
+#         return np.concatenate(components)
+#
+#
+#     def decode_state(self, state_vector):
+#         """
+#         Decodes a 1D state vector into the existing GVariable objects.
+#
+#         :param var_dict: Dict of {variable_name: GVariable}
+#         :param state_vector: 1D numpy array containing all the data in the same order used by encode_state.
+#         """
+#         offset = np.cumsum([var.size for var in self.var_dict.values()])
+#         state_dict = {
+#             key: var.decode(state_vector[var_off-var.size: var_off])
+#             for var_off, (key, var) in zip(offset, self.var_dict.items())
+#         }
+#         return state_dict
+#
+
+
+class StateStructure(dict):
     @staticmethod
     def _resolve_var_class(key):
         if key.endswith('_field'):
@@ -199,57 +261,41 @@ class StateStructure:
             return GVar
 
     def __init__(self, n_nodes, var_cfg: Dict[str, Dict[str, Any]]):
-        self.var_dict : Dict[str, Union[GVar, GField,Measure]] = {
+        super().__init__({
             key: self._resolve_var_class(key).from_dict(n_nodes, val)
             for key, val in var_cfg.items()
-        }
-
-    def __getitem__(self, item):
-        return self.var_dict[item]
+        })
 
     def size(self):
-        return sum(var.size for var in self.var_dict.values())
+        return sum(var.size() for var in self.values())
 
     def compose_Q(self) -> np.ndarray:
-        Q_blocks = (var.Q_full for var in self.var_dict.values())
+        Q_blocks = (var.Q_full for var in self.values())
         return linalg.block_diag(*Q_blocks)
 
-    def compose_ref_dict(self) -> np.ndarray:
-        ref_dict = {key: var.ref for key, var in  self.var_dict.items()}
-        return ref_dict
+    def compose_ref_dict(self) -> Dict[str, Any]:
+        return {key: var.ref for key, var in self.items()}
 
     def compose_init_state(self, nodes_z) -> np.ndarray:
-        mean_list, cov_list = zip(*(var.init_state(nodes_z) for var in  self.var_dict.values()))
+        mean_list, cov_list = zip(*(var.init_state(nodes_z) for var in self.values()))
         mean = np.concatenate(mean_list)
         cov = linalg.block_diag(*cov_list)
         return mean, cov
 
-    def encode_state(self, value_dict):
-        """
-        Encodes a dict of GVariable objects into a single 1D state vector.
-
-        :param var_dict: Dict of {variable_name: GVariable}
-        :return: A 1D numpy array representing the concatenation of all variables' fields.
-        """
-        # Decide on a consistent order. Here we use the insertion or .values() order.
-        # You could also sort by name for consistency if needed.
-        components = [var.encode(value_dict[key]) for key, var in self.var_dict.items()]
+    def encode_state(self, value_dict: Dict[str, Any]) -> np.ndarray:
+        components = [var.encode(value_dict[key]) for key, var in self.items()]
         return np.concatenate(components)
 
-
-    def decode_state(self, state_vector):
+    def decode_state(self, state_vector: np.ndarray) -> Dict[str, Any]:
         """
         Decodes a 1D state vector into the existing GVariable objects.
 
         :param var_dict: Dict of {variable_name: GVariable}
         :param state_vector: 1D numpy array containing all the data in the same order used by encode_state.
         """
-        offset = np.cumsum([var.size for var in self.var_dict.values()])
+        offset = np.cumsum([var.size() for var in self.values()])
         state_dict = {
-            key: var.decode(state_vector[var_off-var.size: var_off])
-            for var_off, (key, var) in zip(offset, self.var_dict.items())
+            key: var.decode(state_vector[var_off - var.size(): var_off])
+            for var_off, (key, var) in zip(offset, self.items())
         }
         return state_dict
-
-
-

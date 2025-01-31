@@ -62,13 +62,13 @@ kalman_config:
       vG_K_s:
         ref: 11
         #mean_std: [12.833, 0.01]
-        mean_std: [11, 0.001 ]
+        mean_std: [13, 2 ]
         Q: 0.00000001
         #transform: lognormal            # transform to normal distribution
         #conf_interval: [0.0001, 0.01]   # implicit 0.95 confidence interval
       vG_n:
         ref: 3.7
-        mean_std: [3.7, 0.01]
+        mean_std: [3.8, 0.1]
         Q: 0.00000001
         #transform: lognormal            # transform to normal distribution
         #conf_interval: [0.0001, 0.01]   # implicit 0.95 confidence interval
@@ -91,13 +91,13 @@ kalman_config:
     - 0.8
     - 1.6
     - 3.0
-  measurements_noise_level: 0.05
+  measurements_noise_level: 0.1
   noise_distr_type: uniform #gaussian
   # model_params_noise_level: 0.1
   pressure_saturation_data_noise_level: 0.3   # init state noise
   #pressure_saturation_data_std: 3.2
-  Q_var: 0.00005
-  Q_model_params_var: 0.00000001
+  Q_var: 5.0e-5
+  Q_model_params_var: 1e-8
   sigma_points_params: {"alpha": 0.01, "beta": 2, "kappa": 1}
 postprocess:
   show: True

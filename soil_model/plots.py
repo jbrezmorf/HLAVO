@@ -112,32 +112,36 @@ def plot_richards_output(output, obs_points=None, fname=None, show=False):
     if show:
         plt.show()
 
-def covariance_plot(cov_matrix, time, n_evec=10, fname=None, show=False):
-    """
-    Plot the covariance matrix as a heatmap.
-
-    Parameters:
-    -----------
-    covariance : np.ndarray
-        The covariance matrix to plot.
-    title : str
-        Title for the plot.
-    """
-
+def covariance_plot(cov_matrix, time, state_struct, n_evec=10, fname=None, show=False):
     """
     Plots analysis of a given covariance matrix:
-    1. Variances (log scale)
-    2. Correlation matrix heatmap (signed log scale colormap)
-    3. Sorted eigenvalues
-    4. First K eigenvectors as a function of index i
+    1. Variances (log scale) with grouped labels.
+    2. Correlation matrix heatmap (signed log scale colormap) with grouped labels.
+    3. Sorted eigenvalues.
+    4. First K eigenvectors as a function of index.
 
     Parameters:
         cov_matrix (numpy.ndarray): The covariance matrix.
-        K (int): Number of eigenvectors to plot.
+        time (float or int): Time index for the title.
+        state_struct (dict): Dictionary where keys are group names and values are objects with a `size()` method.
+        n_evec (int): Number of eigenvectors to plot.
+        fname (str, optional): Filename to save the figure. Defaults to "covariance_analysis_<time>.pdf".
+        show (bool, optional): Whether to display the plot.
     """
+    # Extract group sizes and boundaries
+    group_labels = list(state_struct.keys())
+    group_sizes = [state_struct[key].size() for key in group_labels]
+    boundaries = np.cumsum([0] + group_sizes)
+
+    # Validate matrix size
+    total_size = sum(group_sizes)
+    if cov_matrix.shape[0] != total_size or cov_matrix.shape[1] != total_size:
+        raise ValueError("Covariance matrix size does not match total size defined in state_struct.")
+
     title = f'Covariance Analysis at time {time}'
     if fname is None:
         fname = f'covariance_analysis_{time}.pdf'
+
     # Compute variances (diagonal elements)
     variances = np.diag(cov_matrix)
 
@@ -154,34 +158,58 @@ def covariance_plot(cov_matrix, time, n_evec=10, fname=None, show=False):
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
     # 1. Variance bar plot (log scale)
-    axes[0, 0].bar(range(len(variances)), variances, color='blue', alpha=0.7)
-    axes[0, 0].set_yscale('log')
-    axes[0, 0].set_title('Variances (Log Scale)')
-    axes[0, 0].set_xlabel('Component Index')
-    axes[0, 0].set_ylabel('Variance (log scale)')
+    ax_var = axes[0, 0]
+    ax_var.bar(range(len(variances)), variances, color='blue', alpha=0.7)
+    ax_var.set_yscale('log')
+    ax_var.set_title('Variances (Log Scale)')
+    ax_var.set_xlabel('State Groups')
+    ax_var.set_ylabel('Variance (log scale)')
+
+    # Adjust group separators (shifted by 0.5 to fall between bars)
+    for boundary in boundaries[1:-1]:  # Avoid first (0) and last (total size)
+        ax_var.axvline(boundary - 0.5, color='black', linestyle='--', linewidth=1)  # Shift left by 0.5
+
+    # Set ticks at the center of each group
+    ax_var.set_xticks([(boundaries[i] + boundaries[i+1] - 1) / 2 for i in range(len(group_labels))])
+    ax_var.set_xticklabels(group_labels, rotation=45, ha='right')
 
     # 2. Correlation matrix heatmap (signed log scale colormap)
+    ax_corr = axes[0, 1]
     signed_log_corr = np.sign(correlation_matrix) * np.log1p(np.abs(correlation_matrix))
-    sns.heatmap(signed_log_corr, ax=axes[0, 1], center=0, cmap='coolwarm', annot=False)
-    axes[0, 1].set_title('Correlation Matrix (Signed Log Scale)')
+    sns.heatmap(signed_log_corr, ax=ax_corr, center=0, cmap='coolwarm', annot=False, xticklabels=False, yticklabels=False)
+    ax_corr.set_title('Correlation Matrix (Signed Log Scale)')
+
+    # Add group separators on heatmap
+    for boundary in boundaries[1:-1]:
+        ax_corr.axvline(boundary, color='white', linestyle='--', linewidth=1.5)
+        ax_corr.axhline(boundary, color='white', linestyle='--', linewidth=1.5)
+
+    # Set custom ticks for state groups
+    ax_corr.set_xticks([(boundaries[i] + boundaries[i+1]) / 2 for i in range(len(group_labels))])
+    ax_corr.set_xticklabels(group_labels, rotation=45, ha='right')
+    ax_corr.set_yticks([(boundaries[i] + boundaries[i+1]) / 2 for i in range(len(group_labels))])
+    ax_corr.set_yticklabels(group_labels, rotation=0, va='center')
 
     # 3. Sorted Eigenvalues plot
-    axes[1, 0].plot(eigvals_sorted, 'o-', color='red', markersize=5)
-    axes[1, 0].set_title('Sorted Eigenvalues')
-    axes[1, 0].set_xlabel('Index')
-    axes[1, 0].set_ylabel('Eigenvalue')
+    ax_eigvals = axes[1, 0]
+    ax_eigvals.plot(eigvals_sorted, 'o-', color='red', markersize=5)
+    ax_eigvals.set_title('Sorted Eigenvalues')
+    ax_eigvals.set_xlabel('Index')
+    ax_eigvals.set_ylabel('Eigenvalue')
 
     # 4. First K Eigenvectors as functions of index i
+    ax_eigvecs = axes[1, 1]
     for i in range(min(n_evec, eigvecs_sorted.shape[1])):
-        axes[1, 1].plot(eigvecs_sorted[:, i], label=f'Eigenvector {i + 1}')
+        ax_eigvecs.plot(eigvecs_sorted[:, i], label=f'Eigenvector {i + 1}')
 
-    axes[1, 1].set_title(f'First {n_evec} Eigenvectors')
-    axes[1, 1].set_xlabel('Index')
-    axes[1, 1].set_ylabel('Component Value')
-    axes[1, 1].legend()
+    ax_eigvecs.set_title(f'First {n_evec} Eigenvectors')
+    ax_eigvecs.set_xlabel('Index')
+    ax_eigvecs.set_ylabel('Component Value')
+    ax_eigvecs.legend()
 
     fig.tight_layout()
     fig.suptitle(title)
     fig.savefig(fname)
     if show:
         plt.show()
+    plt.close('all')  # Close the figure to prevent overlapping plots
