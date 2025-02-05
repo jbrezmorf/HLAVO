@@ -296,7 +296,7 @@ class KalmanFilter:
             self.results.times.append(time_step)
             self.results.ukf_x.append(ukf.x)
             self.results.ukf_P.append(ukf.P)
-            self.results.measuremnt_in.append(measurement)
+            self.results.measurement_in.append(measurement)
 
             measurements_train_dict, measurements_test_dict = self.state_measurements[list(self.state_measurements.keys())[-1]]
             self.results.ukf_train_meas.append(self.train_measurements_struc.encode(measurements_train_dict))

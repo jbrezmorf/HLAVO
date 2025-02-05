@@ -85,6 +85,10 @@ kalman_config:
         z_pos: [0.75]
         noise_level: 0.1
         noise_distr_type: uniform
+      velocity:
+        z_pos: [0.75]
+        noise_level: 0.1
+        noise_distr_type: uniform
   test_measurements:
       saturation:
         z_pos: [0.2, 0.8]

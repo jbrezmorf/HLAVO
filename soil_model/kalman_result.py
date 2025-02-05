@@ -29,7 +29,7 @@ class KalmanResults:
     ukf_P: List[np.ndarray] = attrs.field(factory=list)  # List of states
     train_measuremnts_exact: List[np.ndarray] = attrs.field(factory=list)
     test_measuremnts_exact: List[np.ndarray] = attrs.field(factory=list)
-    measuremnt_in: List[np.ndarray] = attrs.field(factory=list)  # List of states
+    measurement_in: List[np.ndarray] = attrs.field(factory=list)  # List of states
     ref_saturation: List[np.ndarray] = attrs.field(factory=list)  # List of states
     #mean_saturation: List[np.ndarray]  = attrs.field(factory=list)  # List of states
     ukf_train_meas: List[np.ndarray]  = attrs.field(factory=list)  # List of states
@@ -226,16 +226,15 @@ class KalmanResults:
 
         # #print("n measurements ", n_measurements)
         if meas_type == 'train':
-            meas_in = trans_state(self.measuremnt_in)
+            meas_in_all = measurements_struc.decode(np.array(self.measurement_in).T)
         else:
-            meas_in = None
+            meas_in_all = None
 
         meas_exact_all = self.train_measuremnts_exact if meas_type == "train" else self.test_measuremnts_exact
         ukf_meas_all = self.ukf_train_meas if meas_type == "train" else self.ukf_test_meas
 
         meas_exact_dict = measurements_struc.decode(meas_exact_all.T)
         #meas_exact_dict = {k: v for k, v in states_dict.items()}
-
 
         meas_x_all = measurements_struc.decode(np.array(ukf_meas_all).T)
 
@@ -250,7 +249,6 @@ class KalmanResults:
             fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(20, 10))
             meas_z = measure_obj.z_pos
 
-            print("meas z ", meas_z)
             colors = sns.color_palette("tab10")
             for i in range(n_meas):
                 col = colors[i % 10]
@@ -267,8 +265,9 @@ class KalmanResults:
                 ax.scatter(times, meas_x[i], c=col, s=30, marker='x', label=f"obs(z={meas_z[i]})")
 
                 #ax.plot(times, meas_exact[i], c=col, linewidth=2, label=f"obs_sim(z={meas_z[i]})")
-                if meas_in is not None:
-                    ax.scatter(times, meas_in[i], c=col, s=30, marker='x', label=f"obs(z={meas_z[i]})")
+                if meas_in_all is not None and measurement_name in meas_in_all:
+                    meas_in = meas_in_all[measurement_name]
+                    ax.scatter(times, meas_in[i], c=col, s=30, marker='x', label=f"noisy obs(z={meas_z[i]})")
 
                 if meas_exact is not None:
                     ax.plot(times, meas_exact[i], c=col, linestyle='--', linewidth=2, label=f"obs_sim(z={meas_z[i]})")
