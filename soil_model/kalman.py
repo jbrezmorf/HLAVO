@@ -91,7 +91,7 @@ class KalmanFilter:
             measurement_noise_covariance = np.diag(sample_variance)
         else:
             measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, \
-            state_data_iters = self.generate_measurements(self.kalman_config["measurements_data_name"])
+            state_data_iters = self.generate_measurements()
 
             residuals = noisy_measurements - measurements
             measurement_noise_covariance = np.cov(residuals, rowvar=False)
@@ -128,7 +128,7 @@ class KalmanFilter:
         new_pressure = self.model.get_data(current_time=kalman_step+1, data_name="pressure")
         return new_pressure
 
-    def model_iteration(self, kalman_step, data_name, pressure, params):
+    def model_iteration(self, kalman_step, pressure, params):
         # et_per_time = ET0(n=14, T=20, u2=10, Tmax=27, Tmin=12, RHmax=0.55, RHmin=0.35,
         #                   month=6) / 1000 / 24  # mm/day to m/sec
         et_per_time = 0 #ET0(**dict(zip(self.model_config['evapotranspiration_params']["names"], self.model_config['evapotranspiration_params']["values"]))) / 1000 / 24  # mm/day to m/hour
@@ -139,7 +139,7 @@ class KalmanFilter:
 
         return measurements_train, measurements_test, new_pressure, new_saturation
 
-    def generate_measurements(self, data_name):
+    def generate_measurements(self):
         train_measurements = []
         test_measurements = []
         noisy_train_measurements = []
@@ -158,7 +158,7 @@ class KalmanFilter:
 
         for i in range(0, len(self.model_config["precipitation_list"])):
             measurement_train, measurement_test, pressure_vec, sat_vec \
-                = self.model_iteration(i, data_name, pressure_vec, ref_params)
+                = self.model_iteration(i, pressure_vec, ref_params)
             self.results.ref_saturation.append(sat_vec)
 
             train_measurements.append(self.train_measurements_struc.encode(measurement_train))

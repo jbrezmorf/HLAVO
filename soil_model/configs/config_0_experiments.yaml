@@ -78,36 +78,36 @@ kalman_config:
       #  conf_interval: [0.35, 0.41, 0.9]  # explicit 0.9 confidence interval
   train_measurements:
       saturation:
-        z_pos: [-0.5, -2.5]
+        z_pos: [0.5, 1.4] #[-0.5, -2.5]
         noise_level: 0.1
         noise_distr_type: uniform
       pressure:
-        z_pos: [-0.4]
+        z_pos: [0.75]
         noise_level: 0.1
         noise_distr_type: uniform
   test_measurements:
       saturation:
-        z_pos: [-1.5, -3]
+        z_pos: [0.2, 0.8]
         noise_level: 0.1
         noise_distr_type: uniform
       pressure:
-        z_pos: [-1, -2.5]
+        z_pos: [1.6, 3.0]
         noise_level: 0.1
         noise_distr_type: uniform
 
 
-  measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
-  mes_locations_train: 
-    - 0.5
-    - 1.4
+  #measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
+  #mes_locations_train: 
+  #  - 0.5
+  #  - 1.4
     #- 2.5
     #- 3.5
-  mes_locations_test: 
-    - 0.2
-    - 0.8
-    - 1.6
-    - 3.0
-  measurements_noise_level: 0.1
+  #mes_locations_test: 
+  #  - 0.2
+  #  - 0.8
+  #  - 1.6
+  #  - 3.0
+  #measurements_noise_level: 0.1
   noise_distr_type: uniform #gaussian
   # model_params_noise_level: 0.1
   pressure_saturation_data_noise_level: 0.3   # init state noise
