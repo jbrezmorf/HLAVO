@@ -19,7 +19,6 @@ model_config:
   rain_periods: 
     - [10, -0.002]    # hours of rain with precipitation
     - [10, -0.2]    # hours of rain with precipitation
-
     # - [28, -0.02]    # hours of rain with precipitation
     #- [16, 0]
     #- [24, -0.02]
@@ -77,7 +76,24 @@ kalman_config:
         # transform: none
         #
       #  conf_interval: [0.35, 0.41, 0.9]  # explicit 0.9 confidence interval
-
+  train_measurements:
+      saturation:
+        z_pos: [-0.5, -2.5]
+        noise_level: 0.1
+        noise_distr_type: uniform
+      pressure:
+        z_pos: [-0.4]
+        noise_level: 0.1
+        noise_distr_type: uniform
+  test_measurements:
+      saturation:
+        z_pos: [-1.5, -3]
+        noise_level: 0.1
+        noise_distr_type: uniform
+      pressure:
+        z_pos: [-1, -2.5]
+        noise_level: 0.1
+        noise_distr_type: uniform
 
 
   measurements_data_name: "saturation"  # Possible values: "saturation" or "pressure"
