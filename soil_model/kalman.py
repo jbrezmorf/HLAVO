@@ -3,8 +3,8 @@ from pathlib import Path
 import yaml
 import argparse
 import numpy as np
-from joblib import Memory
-memory = Memory(location='cache_dir', verbose=10)
+#from joblib import Memory
+#memory = Memory(location='cache_dir', verbose=10)
 
 from kalman_result import KalmanResults
 from parflow_model import ToyProblem
@@ -13,77 +13,13 @@ from filterpy.kalman import JulierSigmaPoints, MerweScaledSigmaPoints
 #from soil_model.evapotranspiration_fce import ET0
 from auxiliary_functions import sqrt_func, add_noise
 from data.load_data import load_data
-from kalman_state import StateStructure
-from scipy.sparse import csr_matrix
+from kalman_state import StateStructure, MeasurementsStructure
 
 ######
 # Unscented Kalman Filter for Parflow model
 # see __main__ for details
 ######
 
-
-
-
-
-
-def build_linear_interpolator_matrix(node_z, obs_z):
-    """
-    Build a sparse matrix M that performs 1D linear interpolation
-    from the values on node_z to the points obs_z, with constant
-    extrapolation beyond the boundaries.
-
-    This version uses an explicit loop over obs_z to ensure that
-    rows in the interpolation matrix follow the order of obs_z.
-
-    Parameters
-    ----------
-    node_z : sorted 1D array of shape (N,)
-        The x-coordinates of the nodes where values are given.
-    obs_z  : 1D array of shape (M,)
-        The x-coordinates of the observation points to interpolate.
-
-    Returns
-    -------
-    M : (M, N) sparse CSR matrix
-        So that M @ node_values (shape (N,)) produces
-        interpolated values at obs_z (shape (M,)).
-    """
-    node_z = np.asarray(node_z)
-    obs_z  = np.asarray(obs_z)
-
-    N = len(node_z)
-    M_size = len(obs_z)
-
-    data = []
-    row_idx = []
-    col_idx = []
-
-    for j, obs in enumerate(obs_z):
-        # Out-of-bounds handling
-        if obs <= node_z[0]:  # Left extrapolation (constant)
-            data.append(1.0)
-            row_idx.append(j)
-            col_idx.append(0)
-        elif obs >= node_z[-1]:  # Right extrapolation (constant)
-            data.append(1.0)
-            row_idx.append(j)
-            col_idx.append(N - 1)
-        else:
-            # Find interval idx such that node_z[i] <= obs < node_z[i+1]
-            i = np.searchsorted(node_z, obs) - 1
-
-            # Compute interpolation weight (alpha)
-            alpha = (obs - node_z[i]) / (node_z[i+1] - node_z[i])
-
-            # Store two values in sparse matrix (linear interpolation)
-            data.extend([1 - alpha, alpha])
-            row_idx.extend([j, j])
-            col_idx.extend([i, i + 1])
-
-    # Create sparse matrix
-    M = csr_matrix((data, (row_idx, col_idx)), shape=(M_size, N))
-
-    return M
 
 class KalmanFilter:
 
@@ -92,7 +28,6 @@ class KalmanFilter:
         with config_path.open("r") as f:
             config_dict = yaml.safe_load(f)
         return KalmanFilter(config_dict, workdir, verbose)
-
 
     def __init__(self, config, workdir, verbose=False):
         self.work_dir = Path(workdir)
@@ -104,21 +39,19 @@ class KalmanFilter:
         self.model_config = config["model_config"]
         self.model = self._make_model()
         nodes_z = self.model.get_nodes_z()
-        self.interpol_train = build_linear_interpolator_matrix(nodes_z, self.kalman_config["mes_locations_train"])
-        self.interpol_test = build_linear_interpolator_matrix(nodes_z, self.kalman_config["mes_locations_test"])
-
-        state_params = self.kalman_config["state_params"]
-        state_params["train_meas"] = {"z_pos": self.kalman_config["mes_locations_train"]}
-        state_params["test_meas"] = {"z_pos": self.kalman_config["mes_locations_test"]}
-
 
         self.state_struc = StateStructure(len(nodes_z), self.kalman_config["state_params"])
+        self.train_measurements_struc = MeasurementsStructure(nodes_z, self.kalman_config["train_measurements"])
+        self.test_measurements_struc = MeasurementsStructure(nodes_z, self.kalman_config["test_measurements"])
+        self.state_measurements = {}
+
         precipitation_list = []
         for (hours, precipitation) in self.model_config['rain_periods']:
             precipitation_list.extend([precipitation] * hours)
         self.model_config["precipitation_list"] = precipitation_list
 
-        self.results = KalmanResults(workdir, nodes_z, self.state_struc, config['postprocess'])
+        self.results = KalmanResults(workdir, nodes_z, self.state_struc, self.train_measurements_struc,
+                                     self.test_measurements_struc, config['postprocess'])
         pass
 
     def _make_model(self):
@@ -158,7 +91,7 @@ class KalmanFilter:
             measurement_noise_covariance = np.diag(sample_variance)
         else:
             measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, \
-            state_data_iters = self.generate_measurements(self.kalman_config["measurements_data_name"])
+            state_data_iters = self.generate_measurements()
 
             residuals = noisy_measurements - measurements
             measurement_noise_covariance = np.cov(residuals, rowvar=False)
@@ -167,8 +100,9 @@ class KalmanFilter:
         #     self.additional_data_len += 1
 
         self.results.ref_states = np.array(state_data_iters)
+        self.results.train_measuremnts_exact = measurements
+        self.results.test_measuremnts_exact = measurements_to_test
 
-        print("state data iters ", np.array(state_data_iters).shape)
         self.results.plot_pressure(self.model, state_data_iters)
 
         #######################################
@@ -187,8 +121,6 @@ class KalmanFilter:
 
         return self.results
 
-
-
     def model_run(self, kalman_step, pressure, params):
         flux = self.model_config["precipitation_list"][kalman_step]
         self.model.run(init_pressure=pressure, precipitation_value=flux,
@@ -196,27 +128,28 @@ class KalmanFilter:
         new_pressure = self.model.get_data(current_time=kalman_step+1, data_name="pressure")
         return new_pressure
 
-    def model_iteration(self, kalman_step, data_name, pressure, params):
+    def model_iteration(self, kalman_step, pressure, params):
         # et_per_time = ET0(n=14, T=20, u2=10, Tmax=27, Tmin=12, RHmax=0.55, RHmin=0.35,
         #                   month=6) / 1000 / 24  # mm/day to m/sec
         et_per_time = 0 #ET0(**dict(zip(self.model_config['evapotranspiration_params']["names"], self.model_config['evapotranspiration_params']["values"]))) / 1000 / 24  # mm/day to m/hour
-
         new_pressure = self.model_run(kalman_step, pressure, params)
         new_saturation = self.model.get_data(current_time=kalman_step, data_name="saturation")
-        measurement = self.get_measurement(kalman_step+1, self.interpol_train, data_name)
-        measurement_to_test = self.get_measurement(kalman_step+1, self.interpol_test, data_name)
-        return measurement, measurement_to_test, new_pressure, new_saturation
+        measurements_train = self.get_measurement(kalman_step + 1, self.train_measurements_struc)
+        measurements_test = self.get_measurement(kalman_step + 1, self.test_measurements_struc)
 
-    def generate_measurements(self, data_name):
-        measurements = []
-        measurements_to_test = []
+        return measurements_train, measurements_test, new_pressure, new_saturation
+
+    def generate_measurements(self):
+        train_measurements = []
+        test_measurements = []
+        noisy_train_measurements = []
+        noisy_test_measurements = []
         state_data_iters = []
 
         ###################
         ##   Model runs  ##
         ###################
         # Loop through time steps
-
         pressure_vec = self.model.make_linear_pressure(self.model_config)
         ref_params = self.state_struc.compose_ref_dict()
         ref_params['pressure_field'] = pressure_vec
@@ -225,42 +158,35 @@ class KalmanFilter:
 
         for i in range(0, len(self.model_config["precipitation_list"])):
             measurement_train, measurement_test, pressure_vec, sat_vec \
-                = self.model_iteration(i, data_name, pressure_vec, ref_params)
+                = self.model_iteration(i, pressure_vec, ref_params)
             self.results.ref_saturation.append(sat_vec)
-            measurements.append(measurement_train)
-            measurements_to_test.append(measurement_test)
+
+            train_measurements.append(self.train_measurements_struc.encode(measurement_train))
+            test_measurements.append(self.test_measurements_struc.encode(measurement_test))
+
+            noisy_train_measurements.append(self.train_measurements_struc.encode(measurement_train, noisy=True))
+            noisy_test_measurements.append(self.test_measurements_struc.encode(measurement_test, noisy=True))
 
             if self.verbose:
                 print("i: {}, data_pressure: {} ".format(i, pressure_vec))
             ref_params['pressure_field'] = pressure_vec
-            ref_params['train_meas'] = measurement_train
-            ref_params['test_meas'] = measurement_test
+
             iter_state = self.state_struc.encode_state(ref_params)
             state_data_iters.append(iter_state)
 
-        noisy_measurements = KalmanFilter.add_noise_to_measurements(
-                                    np.array(measurements),
-                                    level=self.kalman_config["measurements_noise_level"], distr_type=self.kalman_config["noise_distr_type"])
-        noisy_measurements_to_test = KalmanFilter.add_noise_to_measurements(
-                                     np.array(measurements_to_test),
-                                     level=self.kalman_config["measurements_noise_level"], distr_type=self.kalman_config["noise_distr_type"])
+        train_measurements = np.array(train_measurements)
+        test_measurements = np.array(test_measurements)
+        noisy_train_measurements = np.array(noisy_train_measurements)
+        noisy_test_measurements = np.array(noisy_test_measurements)
 
-        measurements = np.array(measurements)
-        measurements_to_test = np.array(measurements_to_test)
-        noisy_measurements = np.array(noisy_measurements)
-        noisy_measurements_to_test = np.array(noisy_measurements_to_test)
+        return train_measurements, noisy_train_measurements, test_measurements, noisy_test_measurements, state_data_iters
 
-        return measurements, noisy_measurements, measurements_to_test, noisy_measurements_to_test, state_data_iters
-
-    def get_measurement(self, kalman_step, obs_interpol, data_name):
-
-        if data_name == "saturation":
-            data_to_measure = self.model.get_data(current_time=kalman_step, data_name="saturation")
-        elif data_name == "pressure":
-            data_to_measure = self.model.get_data(current_time=kalman_step, data_name="pressure")
-
-        measurement = obs_interpol @ data_to_measure
-        return measurement
+    def get_measurement(self, kalman_step, measurements_struct):
+        measurements_dict = {}
+        for measurement_name, measure_obj in measurements_struct.items():
+            data_to_measure = self.model.get_data(current_time=kalman_step, data_name=measurement_name)
+            measurements_dict[measurement_name] = measure_obj.interp @ data_to_measure
+        return measurements_dict
 
     @staticmethod
     def add_noise_to_measurements(measurements, level=0.1, distr_type="uniform"):
@@ -279,18 +205,18 @@ class KalmanFilter:
         pressure_data = state["pressure_field"]
         flux_eps_std = None
 
-
         et_per_time = 0 #ET0(**dict(zip(model_config['evapotranspiration_params']["names"],
                    #model_config['evapotranspiration_params']["values"]))) / 1000 / 24
 
         percipitation = self.model_config["precipitation_list"][time_step]
         self.model.run(pressure_data, percipitation, state, start_time=time_step, stop_time=time_step+1)
         state["pressure_field"] = self.model.get_data(current_time=time_step+1, data_name="pressure")
-        data_saturation = self.model.get_data(current_time=time_step+1, data_name="saturation")
 
-        state["train_meas"] =  self.interpol_train @ data_saturation
-        state["test_meas"] = self.interpol_test @ data_saturation
+        measurements_train = self.get_measurement(time_step + 1, self.train_measurements_struc)
+        measurements_test = self.get_measurement(time_step + 1, self.test_measurements_struc)
+
         new_state_vec = self.state_struc.encode_state(state)
+        self.state_measurements[tuple(new_state_vec)] = (measurements_train, measurements_test)
         return new_state_vec
 
     # @staticmethod
@@ -300,17 +226,13 @@ class KalmanFilter:
     #     filtered_data = {key: value for key, value in model_params.items() if value[1] != 0}
     #     return filtered_data
 
-    def measurement_function(self, state_vec, space_indices_type=None):
-        state = self.state_struc.decode_state(state_vec)
-        if space_indices_type is None:
-            space_indices_type = "train"
-        if space_indices_type == "train":
-            measurements = state['train_meas']
-            #print("train measurements ", measurements)
-        elif space_indices_type == "test":
-            measurements = state['test_meas']
-            print("test measurements ", measurements)
-        return measurements
+    def measurement_function(self, state_vec, measurements_type="train"):
+        measurements_train_dict, measurements_test_dict = self.state_measurements[tuple(state_vec)]
+
+        if measurements_type == "train":
+            return self.train_measurements_struc.encode(measurements_train_dict)
+        elif measurements_type == "test":
+            return self.test_measurements_struc.encode(measurements_test_dict)
 
     @staticmethod
     def get_sigma_points_obj(sigma_points_params, num_state_params):
@@ -318,7 +240,7 @@ class KalmanFilter:
 
     def set_kalman_filter(self,  measurement_noise_covariance):
         num_state_params = self.state_struc.size()
-        dim_z = len(self.kalman_config["mes_locations_train"])  # Number of measurement inputs
+        dim_z = measurement_noise_covariance.shape[0]   # Number of measurement inputs
 
         sigma_points_params = self.kalman_config["sigma_points_params"]
 
@@ -342,28 +264,14 @@ class KalmanFilter:
         ukf.R = measurement_noise_covariance #* 1e6
         print("R measurement_noise_covariance ", measurement_noise_covariance)
 
-
         data_pressure = self.model.get_data(current_time=0, data_name="pressure")
-        data_saturation = self.model.get_data(current_time=0, data_name="saturation")
 
         nodes_z = self.model.get_nodes_z()
         init_mean, init_cov = self.state_struc.compose_init_state(nodes_z)
         init_state = self.state_struc.decode_state(init_mean)
-        init_state["pressure_field"] =  add_noise(np.squeeze(data_pressure),
+        init_state["pressure_field"] = add_noise(np.squeeze(data_pressure),
                                             noise_level=self.kalman_config["pressure_saturation_data_noise_level"],
                                             distr_type=self.kalman_config["noise_distr_type"])
-
-        # MS TODO: seems that adding inital nose to measurements is meaningless as these are in
-        # fact not part of the state vector
-        # if agree, delete comented lines
-        # init_state["train_meas"] = add_noise(np.squeeze(data_saturation[self.space_indices_train]),
-        #                                     noise_level=self.kalman_config["pressure_saturation_data_noise_level"],
-        #                                     distr_type=self.kalman_config["noise_distr_type"])
-        # init_state["test_meas"] = add_noise(np.squeeze(data_saturation[self.space_indices_test]),
-        #                                     noise_level=self.kalman_config["pressure_saturation_data_noise_level"],
-        #                                     distr_type=self.kalman_config["noise_distr_type"])
-        init_state["train_meas"] = self.interpol_train @ data_saturation
-        init_state["test_meas"] = self.interpol_test @ data_saturation
 
         # JB TODO: use init_mean, implement random choice of ref using init distr
         ukf.x = self.state_struc.encode_state(init_state) #initial_state_data #(state.data[int(0.3/0.05)], state.data[int(0.6/0.05)])#state  # Initial state vector
@@ -388,24 +296,11 @@ class KalmanFilter:
             self.results.times.append(time_step)
             self.results.ukf_x.append(ukf.x)
             self.results.ukf_P.append(ukf.P)
-            self.results.measuremnt_in.append(measurement)
+            self.results.measurement_in.append(measurement)
 
-
-            #pred_state_iter.append(ukf.x)
-            #ukf_p_var_iter.append(np.diag(ukf.P))
-
-            # if len(model_dynamic_params) > 0:
-            #     model_params_data = ukf.x[-len(model_dynamic_params):]
-            #     pred_model_params.append(model_params_data)
-
-            # est_loc_measurements = self.measurement_function(ukf.x, space_indices_type="train")
-            # print("noisy measurement ", measurement)
-            # print("est loc measurements ", est_loc_measurements)
-            #
-            # test_est_loc_measurements =self.measurement_function(ukf.x, space_indices_type="test")
-            #
-            # pred_loc_measurements.append(est_loc_measurements)
-            # test_pred_loc_measurements.append(test_est_loc_measurements)
+            measurements_train_dict, measurements_test_dict = self.state_measurements[list(self.state_measurements.keys())[-1]]
+            self.results.ukf_train_meas.append(self.train_measurements_struc.encode(measurements_train_dict))
+            self.results.ukf_test_meas.append(self.test_measurements_struc.encode(measurements_test_dict))
 
         return self.results
 
@@ -478,10 +373,11 @@ class KalmanFilter:
 
 
 
-@memory.cache
+#@memory.cache
 def run_kalman(workdir, cfg_file):
     kalman_filter = KalmanFilter.from_config(Path(workdir), Path(cfg_file).resolve(), verbose=False)
     return kalman_filter.run()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -490,6 +386,7 @@ def main():
     args = parser.parse_args(sys.argv[1:])
     results = run_kalman(Path(args.work_dir), Path(args.config_file).resolve())
     results.postprocess()
+
 
 if __name__ == "__main__":
     import cProfile

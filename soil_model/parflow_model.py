@@ -11,6 +11,7 @@ import os, pathlib
 from matplotlib import pyplot as plt
 from abstract_model import AbstractModel
 from auxiliary_functions import sqrt_func, set_nested_attr, get_nested_attr, add_noise, set_nested_attrs
+from parflow.tools.fs import get_absolute_path
 
 
 class ToyProblem(AbstractModel):
@@ -347,8 +348,15 @@ class ToyProblem(AbstractModel):
             return data.pressure[:, 0, 0]
         elif data_name == "saturation":
             return data.saturation[:, 0, 0]
+        elif data_name == "velocity":
+            return self.get_velocity(data_accessor=data)[:-1, 0, 0]
         else:
             raise NotImplemented("This method returns 'pressure' or 'saturation' only")
+
+    def get_velocity(self, data_accessor):
+        file_name = get_absolute_path(f'{data_accessor._name}.out.velz.{data_accessor._ts}.pfb')
+        velocity = data_accessor._pfb_to_array(file_name)
+        return data_accessor._pfb_to_array(file_name)
 
     def get_times(self):
         return self._run.data_accessor.times

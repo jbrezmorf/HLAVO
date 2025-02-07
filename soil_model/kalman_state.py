@@ -3,6 +3,8 @@ import attrs
 from scipy import stats
 import numpy as np
 from scipy import linalg
+from scipy.sparse import csr_matrix
+from auxiliary_functions import add_noise
 """
 Representation of Kalman state and associated variables:
 - initial mean and covariance: x, P
@@ -14,6 +16,67 @@ Representation of Kalman state and associated variables:
 - Basic support for correlated fields.
 
 """
+
+def build_linear_interpolator_matrix(node_z, obs_z):
+    """
+    Build a sparse matrix M that performs 1D linear interpolation
+    from the values on node_z to the points obs_z, with constant
+    extrapolation beyond the boundaries.
+
+    This version uses an explicit loop over obs_z to ensure that
+    rows in the interpolation matrix follow the order of obs_z.
+
+    Parameters
+    ----------
+    node_z : sorted 1D array of shape (N,)
+        The x-coordinates of the nodes where values are given.
+    obs_z  : 1D array of shape (M,)
+        The x-coordinates of the observation points to interpolate.
+
+    Returns
+    -------
+    M : (M, N) sparse CSR matrix
+        So that M @ node_values (shape (N,)) produces
+        interpolated values at obs_z (shape (M,)).
+    """
+    node_z = np.asarray(node_z)
+    obs_z  = np.asarray(obs_z)
+
+    N = len(node_z)
+    M_size = len(obs_z)
+
+    data = []
+    row_idx = []
+    col_idx = []
+
+    for j, obs in enumerate(obs_z):
+        # Out-of-bounds handling
+        if obs <= node_z[0]:  # Left extrapolation (constant)
+            data.append(1.0)
+            row_idx.append(j)
+            col_idx.append(0)
+        elif obs >= node_z[-1]:  # Right extrapolation (constant)
+            data.append(1.0)
+            row_idx.append(j)
+            col_idx.append(N - 1)
+        else:
+            # Find interval idx such that node_z[i] <= obs < node_z[i+1]
+            i = np.searchsorted(node_z, obs) - 1
+
+            # Compute interpolation weight (alpha)
+            alpha = (obs - node_z[i]) / (node_z[i+1] - node_z[i])
+
+            # Store two values in sparse matrix (linear interpolation)
+            data.extend([1 - alpha, alpha])
+            row_idx.extend([j, j])
+            col_idx.extend([i, i + 1])
+
+    # Create sparse matrix
+    M = csr_matrix((data, (row_idx, col_idx)), shape=(M_size, N))
+
+    return M
+
+
 
 #############################
 # Transforms
@@ -154,13 +217,17 @@ class Measure:
     Auxiliary representing measurement in the state.
     """
     z_pos: np.ndarray
+    noise_level: float
+    noise_distr_type: str
+    interp: np.ndarray
     #transform: Callable[[float], float] = None
 
     @classmethod
-    def from_dict(cls, size, data: Dict[str, Any]) -> 'GField':
+    def from_dict(cls, nodes_z, data: Dict[str, Any]) -> 'GField':
         # JB TODO: check form wring config keyword make more structured config
         # to simplify implementation
-        return cls(data['z_pos'])
+        data["interp"] = build_linear_interpolator_matrix(nodes_z, data["z_pos"])
+        return cls(**data)
 
     def size(self) -> int:
         return len(self.z_pos)
@@ -176,11 +243,14 @@ class Measure:
     def init_state(self, nodes_z):
         return np.zeros(self.size()), 1e-8 * np.eye(self.size())
 
-    def encode(self, value: np.ndarray) -> np.ndarray:
+    def encode(self, value: np.ndarray, noisy: bool) -> np.ndarray:
+        if noisy:
+            value = add_noise(value, noise_level=self.noise_level, distr_type=self.noise_distr_type)
         return value
 
     def decode(self, value: np.ndarray) -> np.ndarray:
         return value
+
 
 #############################
 # Dictionary for declaring state structure and properties.
@@ -289,7 +359,6 @@ class StateStructure(dict):
     def decode_state(self, state_vector: np.ndarray) -> Dict[str, Any]:
         """
         Decodes a 1D state vector into the existing GVariable objects.
-
         :param var_dict: Dict of {variable_name: GVariable}
         :param state_vector: 1D numpy array containing all the data in the same order used by encode_state.
         """
@@ -299,3 +368,32 @@ class StateStructure(dict):
             for var_off, (key, var) in zip(offset, self.items())
         }
         return state_dict
+
+
+class MeasurementsStructure(dict):
+    def __init__(self, nodes_z, var_cfg: Dict[str, Dict[str, Any]]):
+        super().__init__({
+            key: Measure.from_dict(nodes_z, val)
+            for key, val in var_cfg.items()
+        })
+
+    def size(self):
+        return sum(var.size() for var in self.values())
+
+    def encode(self, value_dict: Dict[str, Any], noisy=False) -> np.ndarray:
+        components = [var.encode(value_dict[key], noisy) for key, var in self.items()]
+        return np.concatenate(components)
+
+    def decode(self, meas_vector: np.ndarray) -> Dict[str, Any]:
+        """
+        Decodes a 1D state vector into the existing GVariable objects.
+        :param meas_vector: 1D numpy array containing all the data in the same order used by encode.
+        """
+        offset = np.cumsum([var.size() for var in self.values()])
+        state_dict = {
+            key: var.decode(meas_vector[var_off - var.size(): var_off])
+            for var_off, (key, var) in zip(offset, self.items())
+        }
+        return state_dict
+
+
